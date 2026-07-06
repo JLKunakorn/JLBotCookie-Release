@@ -1,0 +1,31 @@
+# Python files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# PyInstaller build files
+build/
+dist/
+*.spec
+
+# Agent binary
+Antigravity-x64.exe
+Antigravity*
+
+# OS & system files
+.DS_Store
+Thumbs.db
+.wrangler/
+coin_logs/
+*.rar
+*.zip
+*.bat
+
+# Scratch/reverse-engineering artifacts
+scratch/
+JLCookie/scratch/
+*_Decompiled.py
+Mockup*.html
+mockup.html
+V4.html

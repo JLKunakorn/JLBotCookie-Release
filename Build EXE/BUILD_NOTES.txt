@@ -1,0 +1,23 @@
+JLmain V1.0 Premium - clean build staging
+
+Use this folder only for building the customer EXE.
+
+Included:
+- bot.py
+- JLmain.py
+- license_core.py
+- run.py / run.bat
+- build_exe.bat
+- license_config.json
+- assets/
+- templates/
+- adb_bundle/
+
+Do not copy these into this folder:
+- server/admin/private config
+- cloud provider local cache
+- key-generation tools
+- reverse-engineering backups
+- previous build output
+- runtime logs/captures
+- Python cache/bytecode

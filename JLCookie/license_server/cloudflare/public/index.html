@@ -1,0 +1,2375 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JL Bot Cookie - ร้านขายคีย์</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #0f172a;
+      --panel2: #111827;
+      --panel3: #1e293b;
+      --line: #26354f;
+      --text: #f8fafc;
+      --soft: #cbd5e1;
+      --muted: #94a3b8;
+      --amber: #f59e0b;
+      --amber2: #fbbf24;
+      --orange: #f97316;
+      --green: #22c55e;
+      --red: #ef4444;
+      --blue: #38bdf8;
+      --radius: 8px;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        linear-gradient(180deg, rgba(245, 158, 11, 0.11), transparent 340px),
+        radial-gradient(circle at 78% 8%, rgba(56, 189, 248, 0.08), transparent 280px),
+        var(--bg);
+      font-family: "Kanit", system-ui, sans-serif;
+      letter-spacing: 0;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    img { display: block; max-width: 100%; }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: rgba(2, 6, 23, 0.92);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      backdrop-filter: blur(14px);
+    }
+
+    .nav {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand img {
+      width: 44px;
+      height: 44px;
+      object-fit: cover;
+      border-radius: var(--radius);
+      border: 1px solid rgba(251, 191, 36, 0.55);
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.18);
+      flex: 0 0 auto;
+    }
+
+    .brand strong {
+      display: block;
+      color: var(--text);
+      font: 800 18px/1.1 "Outfit", "Kanit", sans-serif;
+      white-space: nowrap;
+    }
+
+    .brand span span {
+      display: block;
+      margin-top: 2px;
+      color: var(--amber2);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: var(--radius);
+      background: rgba(15, 23, 42, 0.72);
+    }
+
+    .tab {
+      min-height: 34px;
+      border: 0;
+      border-radius: 6px;
+      padding: 0 10px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+
+    .tab:hover {
+      color: var(--text);
+    }
+
+    .tab.active {
+      color: #111827;
+      background: linear-gradient(135deg, var(--amber2), var(--orange));
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .user-chip {
+      display: none;
+      min-height: 34px;
+      align-items: center;
+      border: 1px solid rgba(34, 197, 94, 0.35);
+      border-radius: var(--radius);
+      color: #86efac;
+      background: rgba(34, 197, 94, 0.08);
+      padding: 0 10px;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .btn {
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      padding: 0 15px;
+      background: linear-gradient(135deg, var(--amber2), var(--orange));
+      color: #111827;
+      font-weight: 800;
+      white-space: nowrap;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+
+    .btn.secondary {
+      color: var(--soft);
+      background: rgba(15, 23, 42, 0.82);
+      border-color: var(--line);
+    }
+
+    .btn.green {
+      color: #052e16;
+      background: var(--green);
+    }
+
+    .btn.red {
+      color: #fff;
+      background: var(--red);
+    }
+
+    .main { padding: 24px 0 38px; }
+    .view { display: none; }
+    .view.active { display: block; }
+
+    .page-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .page-title {
+      margin: 0;
+      color: var(--text);
+      font: 800 28px/1.22 "Outfit", "Kanit", sans-serif;
+    }
+
+    .page-desc {
+      margin: 7px 0 0;
+      max-width: 72ch;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .home-layout,
+    .buy-layout,
+    .account-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .hero-panel,
+    .card,
+    .package,
+    .mini-card {
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: var(--radius);
+      background: rgba(15, 23, 42, 0.86);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-panel {
+      min-height: 500px;
+      display: grid;
+      align-content: space-between;
+      gap: 24px;
+      padding: 24px;
+      background:
+        linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.9)),
+        var(--panel);
+    }
+
+    .hero-kicker,
+    .actions-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .hero-kicker { margin-bottom: 16px; }
+    .actions-row { margin-top: 18px; }
+
+    .activity-strip {
+      position: relative;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 16px;
+      padding: 9px 12px;
+      overflow: hidden;
+      border: 1px solid rgba(245, 158, 11, 0.28);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(90deg, rgba(245, 158, 11, 0.12), rgba(15, 23, 42, 0.78)),
+        rgba(15, 23, 42, 0.82);
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+    }
+
+    .activity-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 14px rgba(34, 197, 94, 0.78);
+      flex: 0 0 auto;
+    }
+
+    .activity-text {
+      min-width: 0;
+      color: var(--soft);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      animation: activityIn 0.35s ease both;
+    }
+
+    .activity-text strong {
+      color: var(--amber2);
+    }
+
+    @keyframes activityIn {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .pill {
+      min-height: 28px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 0 11px;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      color: var(--muted);
+      background: rgba(2, 6, 23, 0.36);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .pill.amber {
+      color: var(--amber2);
+      border-color: rgba(245, 158, 11, 0.42);
+      background: rgba(245, 158, 11, 0.09);
+    }
+
+    .pill.green {
+      color: #86efac;
+      border-color: rgba(34, 197, 94, 0.4);
+      background: rgba(34, 197, 94, 0.08);
+    }
+
+    .pill.red {
+      color: #fecaca;
+      border-color: rgba(239, 68, 68, 0.42);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .hero-title {
+      margin: 0;
+      max-width: 760px;
+      font: 800 36px/1.18 "Outfit", "Kanit", sans-serif;
+    }
+
+    .hero-title span { color: var(--amber2); }
+
+    .hero-copy {
+      margin: 14px 0 0;
+      max-width: 720px;
+      color: var(--soft);
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    .quick-grid,
+    .package-grid,
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .quick-card {
+      min-height: 116px;
+      padding: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: var(--radius);
+      background: rgba(2, 6, 23, 0.26);
+    }
+
+    .quick-card b {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+      border-radius: 7px;
+      color: #111827;
+      background: var(--amber2);
+      font: 800 13px/1 "Outfit", sans-serif;
+    }
+
+    .quick-card strong,
+    .metric strong {
+      display: block;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .quick-card span,
+    .metric span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .side-stack { display: grid; gap: 14px; }
+
+    .card { padding: 18px; }
+
+    .card-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .card h2,
+    .card h3,
+    .mini-card h3 {
+      margin: 0;
+      color: var(--text);
+      font-size: 18px;
+      line-height: 1.3;
+    }
+
+    .card p,
+    .mini-card p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .metric-list,
+    .order-list,
+    .portal-result {
+      display: grid;
+      gap: 9px;
+    }
+
+    .metric,
+    .order-row,
+    .key-line {
+      min-width: 0;
+      border: 1px solid rgba(148, 163, 184, 0.13);
+      border-radius: var(--radius);
+      background: rgba(2, 6, 23, 0.3);
+      padding: 12px;
+    }
+
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+    .auth-box {
+      max-width: 480px;
+      width: 100%;
+      margin: 40px auto;
+    }
+
+    .auth-toggle-bar {
+      display: flex;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: var(--radius);
+      padding: 5px;
+      margin-bottom: 18px;
+    }
+
+    .auth-toggle-btn {
+      flex: 1;
+      min-height: 38px;
+      background: transparent;
+      border: 0;
+      color: var(--muted);
+      font-weight: 700;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .auth-toggle-btn.active {
+      color: #111827;
+      background: linear-gradient(135deg, var(--amber2), var(--orange));
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .field.full { grid-column: 1 / -1; }
+
+    label {
+      color: var(--soft);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      outline: none;
+      background: rgba(2, 6, 23, 0.42);
+      color: var(--text);
+      padding: 0 12px;
+    }
+
+    input:focus {
+      border-color: var(--amber);
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.13);
+    }
+
+    input[type="file"] {
+      padding: 8px 10px;
+      color: var(--muted);
+    }
+
+    .package-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .package {
+      min-height: 250px;
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+    }
+
+    .package.selected {
+      border-color: rgba(245, 158, 11, 0.78);
+      background: linear-gradient(180deg, rgba(245, 158, 11, 0.12), rgba(15, 23, 42, 0.92));
+      box-shadow: 0 18px 48px rgba(245, 158, 11, 0.13);
+      transform: translateY(-2px);
+    }
+
+    .package h3 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .price {
+      color: var(--amber2);
+      font: 800 32px/1 "Outfit", "Kanit", sans-serif;
+    }
+
+    .price small {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .package ul {
+      display: grid;
+      gap: 8px;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      color: var(--soft);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .package li::before {
+      content: "✓";
+      color: var(--green);
+      font-weight: 800;
+      margin-right: 8px;
+    }
+
+    .package .btn { width: 100%; margin-top: auto; }
+
+    .stock-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .stock-line strong {
+      color: var(--amber2);
+    }
+
+    .stock-line.out strong {
+      color: var(--red);
+    }
+
+    .payment-box {
+      min-height: 260px;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 10px;
+      border: 1px dashed rgba(251, 191, 36, 0.45);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(135deg, rgba(245, 158, 11, 0.08), transparent),
+        rgba(2, 6, 23, 0.3);
+      text-align: center;
+      padding: 18px;
+    }
+
+    .qr {
+      width: 150px;
+      height: 150px;
+      display: grid;
+      place-items: center;
+      border: 10px solid #fff;
+      border-radius: 8px;
+      color: #111827;
+      background:
+        linear-gradient(90deg, #111827 14px, transparent 14px) 0 0 / 28px 28px,
+        linear-gradient(#111827 14px, transparent 14px) 0 0 / 28px 28px,
+        #fff;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .payment-qr {
+      width: min(260px, 100%);
+      border: 10px solid #fff;
+      border-radius: var(--radius);
+      background: #fff;
+      object-fit: contain;
+    }
+
+    .bank-detail {
+      display: grid;
+      gap: 3px;
+      color: var(--soft);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .bank-detail b {
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .summary {
+      display: grid;
+      gap: 8px;
+      padding: 12px 0;
+      margin: 14px 0;
+      border-top: 1px solid rgba(148, 163, 184, 0.13);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.13);
+    }
+
+    .summary-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .summary-row strong {
+      color: var(--text);
+      text-align: right;
+    }
+
+    .summary-row.total strong {
+      color: var(--amber2);
+      font: 800 22px/1 "Outfit", "Kanit", sans-serif;
+    }
+
+    .key-line {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .key-line span,
+    .order-row span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    .key-line strong,
+    .order-row strong {
+      display: block;
+      color: var(--text);
+      font-size: 14px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .key-code {
+      color: var(--amber2) !important;
+      font: 800 15px/1.25 "Outfit", monospace !important;
+    }
+
+    .download-card {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(135deg, rgba(245, 158, 11, 0.09), transparent),
+        rgba(15, 23, 42, 0.86);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .download-card img {
+      width: 76px;
+      height: 76px;
+      border: 1px solid rgba(251, 191, 36, 0.45);
+      border-radius: var(--radius);
+      object-fit: cover;
+    }
+
+    .download-card h2 {
+      margin: 0 0 5px;
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }
+
+    .download-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .info-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 14px;
+    }
+
+    .mini-card {
+      min-height: 132px;
+      padding: 16px;
+    }
+
+    .empty-state {
+      border: 1px dashed rgba(148, 163, 184, 0.22);
+      border-radius: var(--radius);
+      color: var(--muted);
+      background: rgba(2, 6, 23, 0.22);
+      padding: 18px;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .video-mockup {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: linear-gradient(135deg, #1b263b, #0f172a);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+    }
+
+    button.video-mockup {
+      color: inherit;
+      padding: 0;
+    }
+    .video-mockup:hover .play-btn {
+      transform: scale(1.1);
+      box-shadow: 0 0 25px rgba(245, 158, 11, 0.6);
+    }
+    .play-btn {
+      width: 68px;
+      height: 68px;
+      background: linear-gradient(135deg, var(--amber2), var(--orange));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      color: #111827;
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 2;
+    }
+    .play-btn::before {
+      content: "▶";
+      margin-left: 4px;
+    }
+    .video-title-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
+      padding: 15px;
+      font-size: 13px;
+      font-weight: bold;
+      color: var(--text);
+      text-align: center;
+      z-index: 1;
+    }
+
+    .inline-video {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      display: block;
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      border-radius: var(--radius);
+      background: #020617;
+    }
+
+    .video-slot-note {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .video-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(2, 6, 23, 0.78);
+      backdrop-filter: blur(10px);
+    }
+
+    .video-modal.open {
+      display: grid;
+    }
+
+    .video-modal-box {
+      width: min(860px, 100%);
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .video-modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .video-modal-head strong {
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .video-frame {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: 0;
+      display: block;
+      background: #020617;
+    }
+    .guide-step {
+      border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+      padding: 15px 0;
+    }
+    .guide-step:last-child {
+      border-bottom: none;
+    }
+    .guide-step h3 {
+      font-size: 15px;
+      color: var(--amber2);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .guide-step h3 span {
+      background: var(--amber2);
+      color: #111827;
+      width: 20px;
+      height: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .contact-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-top: 15px;
+    }
+    .contact-item {
+      background: rgba(2, 6, 23, 0.3);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      padding: 14px;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: border-color 0.2s ease;
+    }
+    .contact-item:hover {
+      border-color: var(--amber2);
+    }
+    .contact-icon {
+      font-size: 22px;
+    }
+
+    .openchat-card {
+      display: grid;
+      grid-template-columns: 190px minmax(0, 1fr);
+      gap: 18px;
+      align-items: center;
+    }
+
+    .line-qr {
+      width: 190px;
+      height: 190px;
+      border: 10px solid #fff;
+      border-radius: var(--radius);
+      background: #fff;
+      object-fit: contain;
+    }
+
+    .openchat-list {
+      display: grid;
+      gap: 8px;
+      margin: 14px 0;
+      color: var(--soft);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .openchat-list span::before {
+      content: "•";
+      color: var(--amber2);
+      font-weight: 800;
+      margin-right: 8px;
+    }
+
+    .footer {
+      padding: 20px 0 28px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .footer .shell {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-top: 1px solid rgba(148, 163, 184, 0.14);
+      padding-top: 16px;
+    }
+
+    @media (max-width: 1000px) {
+      .nav {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 12px 0;
+      }
+
+      .nav-tabs,
+      .top-actions { width: 100%; }
+      .nav-tabs { overflow-x: auto; }
+      .top-actions { flex-wrap: wrap; }
+      .top-actions .btn { flex: 1 1 0; }
+      .user-chip {
+        flex: 1 1 100%;
+        justify-content: center;
+      }
+
+      .home-layout,
+      .buy-layout,
+      .account-layout,
+      .activity-strip,
+      .auth-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .quick-grid,
+      .package-grid,
+      .info-grid,
+      .contact-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .openchat-card {
+        grid-template-columns: 1fr;
+        justify-items: center;
+        text-align: center;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .shell { width: min(100% - 24px, 1180px); }
+      .main { padding-top: 16px; }
+      .page-head { align-items: start; flex-direction: column; }
+      .page-title { font-size: 23px; }
+      .hero-panel, .card { padding: 16px; }
+      .hero-title { font-size: 27px; }
+      .hero-copy { font-size: 14px; }
+      .quick-grid,
+      .package-grid,
+      .form-grid,
+      .info-grid,
+      .contact-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .download-card {
+        grid-template-columns: 58px minmax(0, 1fr);
+      }
+
+      .download-card img {
+        width: 58px;
+        height: 58px;
+      }
+
+      .download-card .btn {
+        grid-column: 1 / -1;
+        width: 100%;
+      }
+
+      .key-line {
+        grid-template-columns: 1fr;
+      }
+
+      .key-line .btn,
+      .key-line .pill {
+        justify-self: start;
+      }
+
+      .footer .shell { display: grid; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell nav">
+      <a class="brand" href="#" data-route="home" aria-label="JL Bot Cookie">
+        <img src="assets/app_icon.png" alt="JL Bot Cookie icon">
+        <span>
+          <strong>JL Bot Cookie</strong>
+          <span>ระบบเช่าคีย์บอท</span>
+        </span>
+      </a>
+
+      <nav class="nav-tabs" aria-label="เมนูเว็บ">
+        <button class="tab active" type="button" data-route="home">หน้าหลัก</button>
+        <button class="tab" type="button" data-route="buy">ซื้อคีย์</button>
+        <button class="tab" type="button" data-route="account">บัญชีของฉัน</button>
+        <button class="tab" type="button" data-route="guide">วิธีการใช้งาน</button>
+        <button class="tab" type="button" data-route="download">ดาวน์โหลด</button>
+        <button class="tab" type="button" data-route="contact">ช่องทางการติดต่อ</button>
+      </nav>
+
+      <div class="top-actions">
+        <span class="user-chip" id="userChip"></span>
+        <button class="btn secondary" type="button" data-route="auth" id="loginNavBtn">เข้าสู่ระบบ</button>
+        <button class="btn" type="button" data-route="buy">ซื้อเลย</button>
+        <button class="btn red" type="button" id="logoutBtn" style="display:none;">ออกจากระบบ</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell main">
+    <section class="view active" id="view-home">
+      <div class="activity-strip" aria-live="polite" style="display:none;">
+        <span class="activity-dot"></span>
+        <span class="activity-text" data-activity-text></span>
+      </div>
+      <div class="home-layout">
+        <div class="hero-panel">
+          <div>
+            <div class="hero-kicker">
+              <span class="pill amber">เริ่มต้น 10.- เท่านั้น</span>
+              <span class="pill green">1 key ต่อ 1 เครื่อง</span>
+              <span class="pill">รองรับทุกฟังก์ชัน</span>
+            </div>
+            <h1 class="hero-title"><span>JL Bot Cookie</span> บอท Cookie Run Classic สำหรับฟาร์มเหรียญอัตโนมัติ</h1>
+            <p class="hero-copy">
+              เปิดโปรแกรม เลือกอีมูเลเตอร์ วาง License Key แล้วปล่อยให้บอทวิ่ง กระโดด สไลด์ ต่อชีพ และเก็บเหรียญแทนคุณ เหมาะสำหรับคนที่อยากเปิดฟาร์มทิ้งไว้โดยไม่ต้องนั่งเล่นเอง
+            </p>
+            <div class="actions-row">
+              <button class="btn" type="button" data-route="buy">เลือกแพ็กเกจ</button>
+            </div>
+          </div>
+
+          <div class="quick-grid">
+            <div class="quick-card">
+              <b>1</b>
+              <strong>สมัครหรือเข้าสู่ระบบ</strong>
+              <span>ใช้ชื่อผู้ใช้และรหัสผ่านสำหรับดูประวัติย้อนหลัง</span>
+            </div>
+            <div class="quick-card">
+              <b>2</b>
+              <strong>เลือกแพ็ก</strong>
+              <span>รายวัน รายสัปดาห์ หรือรายเดือน</span>
+            </div>
+            <div class="quick-card">
+              <b>3</b>
+              <strong>สแกนจ่ายและอัปสลิป</strong>
+              <span>รายการจะถูกผูกกับบัญชีลูกค้า</span>
+            </div>
+            <div class="quick-card">
+              <b>4</b>
+              <strong>รับคีย์และไฟล์ล่าสุด</strong>
+              <span>ดูได้จากบัญชีของฉันหลังรายการผ่าน</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="side-stack">
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h2>เซ็ตตัวละครแนะนำ</h2>
+                <p>การผสมผสานตัวละคร สมบัติ และสัตว์เลี้ยงเพื่อประสิทธิภาพสูงสุด</p>
+              </div>
+              <span class="pill amber">เร็วๆ นี้</span>
+            </div>
+            <div style="color: var(--muted); font-size: 13px; text-align: center; padding: 24px 0; border: 1px dashed var(--line); border-radius: 8px; margin-top: 12px; font-style: italic;">
+              อยู่ระหว่างการจัดเตรียมข้อมูลเซ็ตตัวละครแนะนำ...
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h2>ตัวอย่างการทำงาน</h2>
+                <p>คลิกเพื่อดูวิดีโอสาธิตการทำงานของบอท</p>
+              </div>
+            </div>
+            <iframe
+              class="inline-video"
+              src="https://www.youtube.com/embed/g3qmOwe6X8A?autoplay=1&mute=1&loop=1&playlist=g3qmOwe6X8A&controls=1&rel=0&playsinline=1"
+              title="JL Bot Cookie Run Auto Farming Playback"
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowfullscreen></iframe>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h2>ฟีเจอร์หลักของบอท</h2>
+                <p>โฟกัสงานฟาร์มเหรียญและการควบคุมเกมอัตโนมัติ</p>
+              </div>
+              <span class="pill green">พร้อมใช้งาน</span>
+            </div>
+            <div class="metric-list">
+              <div class="metric"><span>เล่นอัตโนมัติ</span><strong>พร้อมใช้</strong></div>
+              <div class="metric"><span>ช่วยฟาร์มเหรียญ</span><strong>มี</strong></div>
+              <div class="metric"><span>รองรับอีมูเลเตอร์หลัก</span><strong>มี</strong></div>
+              <div class="metric"><span>เลือกบูสต์ได้</span><strong>ยืดหยุ่น</strong></div>
+              <div class="metric"><span>ดูผลเหรียญในโปรแกรม</span><strong>มี</strong></div>
+              <div class="metric"><span>ตั้งค่าใช้งานง่าย</span><strong>มี</strong></div>
+            </div>
+          </div>
+
+          <div class="card" style="border-color: rgba(239, 68, 68, 0.4); background: linear-gradient(145deg, var(--panel2), rgba(239, 68, 68, 0.05));">
+            <div class="card-head">
+              <div>
+                <h2 style="color: var(--red);">JL BOT ProMax</h2>
+                <p>แพ็กใหม่สำหรับงานฟาร์มที่ต้องการความสะดวกมากขึ้น กำลังเตรียมเปิดให้ใช้งานเร็ว ๆ นี้</p>
+              </div>
+              <span class="pill red">Coming Soon</span>
+            </div>
+            <ul style="margin: 12px 0 0; padding-left: 20px; color: var(--soft); font-size: 13px; line-height: 1.8;">
+              <li>โหมดช่วยจัดการหัวใจ</li>
+              <li>โหมดช่วยเชิญเพื่อน</li>
+              <li>งานอัตโนมัติสำหรับผู้ใช้ที่ต้องการแพ็กสูงขึ้น</li>
+              <li>รายละเอียดเต็มจะแจ้งใน OpenChat เมื่อพร้อมเปิดขาย</li>
+            </ul>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-auth">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">บัญชีลูกค้า</h1>
+          <p class="page-desc">เข้าสู่ระบบเพื่อซื้อคีย์ ดูประวัติรายการซื้อ คีย์ที่ได้รับ วันหมดอายุ และไฟล์โปรแกรมล่าสุด</p>
+        </div>
+      </div>
+
+      <div class="auth-box">
+        <div class="auth-toggle-bar">
+          <button class="auth-toggle-btn active" type="button" id="tabAuthLogin">เข้าสู่ระบบ</button>
+          <button class="auth-toggle-btn" type="button" id="tabAuthRegister">สมัครสมาชิก</button>
+        </div>
+
+        <form class="card" id="loginForm">
+          <div class="card-head">
+            <div>
+              <h2>เข้าสู่ระบบสมาชิก</h2>
+              <p>ใช้ชื่อผู้ใช้เดิมเพื่อเรียกดูข้อมูลประวัติซื้อคีย์</p>
+            </div>
+          </div>
+          <div class="field">
+            <label for="loginUser">ชื่อผู้ใช้</label>
+            <input id="loginUser" type="text" autocomplete="username" placeholder="เช่น jlcustomer">
+          </div>
+          <div class="field">
+            <label for="loginPass">รหัสผ่าน</label>
+            <input id="loginPass" type="password" autocomplete="current-password" placeholder="กรอกรหัสผ่าน">
+          </div>
+          <button class="btn" type="submit" style="width:100%;">เข้าสู่ระบบ</button>
+          <p id="loginMsg" style="margin-top: 10px; font-size: 13px; text-align: center;"></p>
+        </form>
+
+        <form class="card" id="registerForm" style="display: none;">
+          <div class="card-head">
+            <div>
+              <h2>สมัครสมาชิกใหม่</h2>
+              <p>สร้างบัญชีไว้สำหรับเก็บรายการซื้อและประวัติคีย์ทั้งหมด</p>
+            </div>
+          </div>
+          <div class="field">
+            <label for="regUser">ชื่อผู้ใช้</label>
+            <input id="regUser" type="text" autocomplete="username" placeholder="ตั้งชื่อผู้ใช้">
+          </div>
+          <div class="field">
+            <label for="regPass">รหัสผ่าน</label>
+            <input id="regPass" type="password" autocomplete="new-password" placeholder="ตั้งรหัสผ่าน">
+          </div>
+          <div class="field">
+            <label for="regConfirmPass">ยืนยันรหัสผ่าน</label>
+            <input id="regConfirmPass" type="password" autocomplete="new-password" placeholder="ยืนยันรหัสผ่านอีกครั้ง">
+          </div>
+          <button class="btn green" type="submit" style="width:100%;">สมัครสมาชิก</button>
+          <p id="regMsg" style="margin-top: 10px; font-size: 13px; text-align: center;"></p>
+        </form>
+      </div>
+    </section>
+
+    <section class="view" id="view-buy">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">ซื้อคีย์</h1>
+          <p class="page-desc">เลือกแพ็ก สแกนจ่าย อัปโหลดสลิป รายการซื้อจะถูกบันทึกไว้ในบัญชีลูกค้าโดยอัตโนมัติ</p>
+        </div>
+        <span class="pill amber" id="buyAccountStatus">กรุณาเข้าสู่ระบบก่อนซื้อ</span>
+      </div>
+      <div class="activity-strip" aria-live="polite" style="display:none;">
+        <span class="activity-dot"></span>
+        <span class="activity-text" data-activity-text></span>
+      </div>
+
+      <div id="buy-step-1">
+        <div class="auth-toggle-bar" style="margin-bottom: 24px; max-width: 500px; margin-left: auto; margin-right: auto;">
+          <button class="auth-toggle-btn active" type="button" id="btnBuyTabPremium">JL BOT Premium (พร้อมขาย)</button>
+          <button class="auth-toggle-btn" type="button" id="btnBuyTabProMax">JL BOT ProMax (Coming Soon)</button>
+        </div>
+
+        <div id="buy-premium-panel">
+          <div class="package-grid" aria-label="แพ็กเกจ">
+            <article class="package" data-plan-card="1 วัน">
+              <span class="pill">เริ่มต้น</span>
+              <h3>รายวัน</h3>
+              <div class="price">10฿ <small>/ 1 วัน</small></div>
+              <ul>
+                <li>เริ่มนับเวลาหลังส่งคีย์</li>
+                <li>1 key ต่อ 1 เครื่อง</li>
+                <li>ดูคีย์ย้อนหลังได้ในบัญชี</li>
+              </ul>
+              <div class="stock-line" data-stock-line="1d">คีย์คงเหลือ <strong data-stock-count="1d">กำลังเช็ค</strong></div>
+              <button class="btn secondary" type="button" data-plan="1 วัน">เลือก 1 วัน</button>
+            </article>
+
+            <article class="package selected" data-plan-card="7 วัน">
+              <span class="pill amber">ยอดนิยม</span>
+              <h3>รายสัปดาห์</h3>
+              <div class="price">50฿ <small>/ 7 วัน</small></div>
+              <ul>
+                <li>เริ่มนับเวลาหลังส่งคีย์</li>
+                <li>1 key ต่อ 1 เครื่อง</li>
+                <li>เช็ควันหมดอายุได้เอง</li>
+              </ul>
+              <div class="stock-line" data-stock-line="7d">คีย์คงเหลือ <strong data-stock-count="7d">กำลังเช็ค</strong></div>
+              <button class="btn" type="button" data-plan="7 วัน">เลือก 7 วัน</button>
+            </article>
+
+            <article class="package" data-plan-card="30 วัน">
+              <span class="pill green">คุ้มสุด</span>
+              <h3>รายเดือน</h3>
+              <div class="price">150฿ <small>/ 30 วัน</small></div>
+              <ul>
+                <li>เริ่มนับเวลาหลังส่งคีย์</li>
+                <li>1 key ต่อ 1 เครื่อง</li>
+                <li>ราคาเฉลี่ยต่อวันถูกที่สุด</li>
+              </ul>
+              <div class="stock-line" data-stock-line="30d">คีย์คงเหลือ <strong data-stock-count="30d">กำลังเช็ค</strong></div>
+              <button class="btn secondary" type="button" data-plan="30 วัน">เลือก 30 วัน</button>
+            </article>
+          </div>
+        </div>
+
+        <div id="buy-promax-panel" style="display: none;">
+          <div style="margin: 0 auto 24px; max-width: 800px; padding: 12px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.1); border-left: 4px solid var(--red); color: var(--red); font-size: 13px; line-height: 1.6; text-align: left; font-weight: 500;">
+            ProMax เป็นแพ็กใหม่สำหรับลูกค้าที่ต้องการเครื่องมือเสริมมากขึ้น รายละเอียดและวันเปิดขายจะแจ้งอีกครั้งใน OpenChat
+          </div>
+          <div class="package-grid" aria-label="แพ็กเกจ">
+            <article class="package" style="border-color: rgba(239, 68, 68, 0.2); opacity: 0.85;">
+              <span class="pill red">Coming Soon</span>
+              <h3>รายสัปดาห์ (ProMax)</h3>
+              <div class="price">99฿ <small>/ 7 วัน</small></div>
+              <ul>
+                <li>โหมดช่วยจัดการหัวใจ</li>
+                <li>โหมดช่วยเชิญเพื่อน</li>
+                <li>ฟีเจอร์เสริมสำหรับงานประจำ</li>
+              </ul>
+              <button class="btn secondary" type="button" disabled style="opacity: 0.6; cursor: not-allowed;"> Coming Soon </button>
+            </article>
+
+            <article class="package" style="border-color: rgba(239, 68, 68, 0.2); opacity: 0.85;">
+              <span class="pill red">Coming Soon</span>
+              <h3>รายเดือน (ProMax)</h3>
+              <div class="price">299฿ <small>/ 30 วัน</small></div>
+              <ul>
+                <li>โหมดช่วยจัดการหัวใจ</li>
+                <li>โหมดช่วยเชิญเพื่อน</li>
+                <li>ตัวเลือกเสริมสำหรับใช้งานต่อเนื่อง</li>
+              </ul>
+              <button class="btn secondary" type="button" disabled style="opacity: 0.6; cursor: not-allowed;"> Coming Soon </button>
+            </article>
+
+            <article class="package" style="border-color: rgba(239, 68, 68, 0.2); opacity: 0.85;">
+              <span class="pill red">Coming Soon</span>
+              <h3>ตลอดชีพ (ProMax)</h3>
+              <div class="price">899฿ <small>/ ตลอดชีพ</small></div>
+              <ul>
+                <li>ฟีเจอร์ ProMax ครบชุด</li>
+                <li>เหมาะกับผู้ใช้ที่ต้องการแพ็กสูงสุด</li>
+                <li>รายละเอียดการอัปเดตจะแจ้งก่อนเปิดขาย</li>
+              </ul>
+              <button class="btn secondary" type="button" disabled style="opacity: 0.6; cursor: not-allowed;"> Coming Soon </button>
+            </article>
+          </div>
+        </div>
+
+        <div style="margin-top: 24px; display: flex; justify-content: center;">
+          <button class="btn green" id="btn-confirm-plan" type="button" style="padding: 14px 48px; font-size: 16px; font-weight: 600; width: 100%; max-width: 450px; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3); border-radius: var(--radius);">
+            ยืนยันการเลือกสินค้า (ขั้นตอนถัดไป)
+          </button>
+        </div>
+      </div>
+
+      <div id="buy-step-2" class="buy-layout" style="display: none;">
+        <div>
+          <div style="margin-bottom: 12px;">
+            <button class="btn secondary" id="btn-back-to-step-1" type="button" style="padding: 8px 16px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
+              ← ย้อนกลับไปเลือกแพ็กเกจ
+            </button>
+          </div>
+
+          <div class="card" style="border: 2px solid var(--amber2); box-shadow: 0 0 15px rgba(245, 158, 11, 0.15);">
+            <div class="card-head">
+              <div>
+                <h2 style="color: var(--amber2); margin: 0;">ขั้นตอนการชำระเงิน</h2>
+                <p>สแกน QR Code และโอนเงินตามราคาแพ็กเกจ</p>
+              </div>
+              <span class="pill amber" id="payAmount" style="font-size: 18px; padding: 6px 12px;">50฿</span>
+            </div>
+
+            <div class="payment-box" style="padding: 20px; text-align: center;">
+              <div style="background: rgba(30, 41, 59, 0.6); padding: 12px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.1); margin-bottom: 20px; text-align: left;">
+                <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">แพ็กเกจที่เลือก</div>
+                <div style="font-size: 18px; font-weight: bold; color: #fff; margin-top: 2px;" id="payPlanText">แพ็ก 7 วัน / 50฿</div>
+                <div style="font-size: 14px; color: var(--amber2); margin-top: 4px; font-weight: 500;">
+                  ยอดโอนที่ต้องชำระ: <span id="confirmPlanPrice">50</span> บาท (ห้ามโอนขาดหรือเกิน)
+                </div>
+              </div>
+
+              <img class="payment-qr" src="assets/payment_qr.jpg" alt="QR รับเงินธนาคารกสิกรไทย" style="max-width: 260px; margin: 0 auto 15px; display: block; border-radius: 8px; border: 3px solid #fff;">
+
+              <div class="bank-detail" style="background: rgba(15, 23, 42, 0.5); padding: 16px; border-radius: var(--radius); border: 1px solid rgba(148, 163, 184, 0.1); margin-bottom: 12px; text-align: center;">
+                <b style="font-size: 15px; color: #10b981; display: block; margin-bottom: 6px;">ธนาคารกสิกรไทย (KBank / MAKE)</b>
+                <span style="font-size: 13px; color: var(--muted); display: block;">ชื่อบัญชี: คุณากร หงษ์กลิ่น</span>
+                <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+                  <span id="bank-acc-num" style="font-size: 16px; font-weight: bold; color: #fff; letter-spacing: 0.5px;">166-3-75029-8</span>
+                  <button class="btn secondary" id="btn-copy-acc" type="button" style="padding: 2px 10px; font-size: 11px; height: auto; border-color: var(--amber2); color: var(--amber2);">คัดลอกเลขบัญชี</button>
+                </div>
+              </div>
+
+              <p style="font-size: 13px; color: var(--muted); margin: 15px 0 0;">
+                💡 กรุณาบันทึกสลิปโอนเงินหลังจากโอนเสร็จ และนำมาอัปโหลดที่แบบฟอร์มด้านขวา
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <form class="card" id="orderForm">
+          <div class="card-head">
+            <div>
+              <h2>อัปโหลดสลิป</h2>
+              <p>รายการนี้จะผูกกับบัญชีที่เข้าสู่ระบบอยู่</p>
+            </div>
+          </div>
+
+          <div class="summary">
+            <div class="summary-row"><span>แพ็ก</span><strong id="sumPlan">7 วัน</strong></div>
+            <div class="summary-row"><span>ระยะเวลา</span><strong id="sumDuration">7 วัน</strong></div>
+            <div class="summary-row"><span>ยอดชำระ</span><strong id="sumPrice">50฿</strong></div>
+            <div class="summary-row"><span>รับคีย์</span><strong>ในบัญชีของฉัน</strong></div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field full">
+              <label for="slipFile">สลิปโอนเงิน</label>
+              <input id="slipFile" type="file" accept="image/*">
+            </div>
+          </div>
+
+          <button class="btn green" type="submit" style="width:100%;">ส่งสลิปให้ร้านตรวจ</button>
+          <p id="orderNote" style="color:var(--muted); font-size:12px; line-height:1.55; margin:10px 0 0;">
+            เมื่อรายการชำระเงินผ่าน ระบบจะแสดงคีย์และปุ่มดาวน์โหลดในบัญชีของฉัน
+          </p>
+        </form>
+      </div>
+    </section>
+
+    <section class="view" id="view-account">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">บัญชีของฉัน</h1>
+          <p class="page-desc">ดูรายการซื้อทั้งหมด คีย์ที่ได้รับ วันหมดอายุ และดาวน์โหลดโปรแกรมล่าสุด</p>
+        </div>
+        <button class="btn secondary" type="button" data-route="buy">ซื้อคีย์เพิ่ม</button>
+      </div>
+
+      <div class="account-layout">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>ประวัติการซื้อ</h2>
+              <p>คีย์จะเริ่มนับเวลาถอยหลังหลังจากที่ได้รับคีย์แล้วเท่านั้น</p>
+            </div>
+            <span class="pill green" id="orderCount">0 รายการ</span>
+          </div>
+          <div class="order-list" id="orderList"></div>
+        </div>
+
+        <div class="side-stack">
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h2>คีย์ล่าสุด</h2>
+                <p>คีย์สำหรับเปิดใช้งานบอท 1 คีย์ ต่อ 1 เครื่องเท่านั้น</p>
+              </div>
+              <span class="pill green" id="latestStatus">พร้อมใช้</span>
+            </div>
+            <div class="portal-result" id="latestKeyBox"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-guide">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">วิธีการใช้งานบอท</h1>
+          <p class="page-desc">ขั้นตอนเตรียมความพร้อมเพื่อใช้งานบอท JL Bot Cookie</p>
+        </div>
+      </div>
+
+      <div class="home-layout">
+        <div class="card">
+          <h2>ขั้นตอนเริ่มรันบอท</h2>
+          <div class="guide-step">
+            <h3><span>1</span> เตรียมโปรแกรมจำลอง Emulator</h3>
+            <p style="color:var(--soft); font-size:13px; line-height:1.6; margin-top:5px;">
+              แนะนำให้ใช้ <strong>LDPlayer 9 หรือ MuMu Player 12</strong> ตั้งค่าความละเอียดหน้าจอจำลองเป็น 1280x720 (DPI 240) ในระบบ Android ของโปรแกรมจำลอง
+            </p>
+          </div>
+          <div class="guide-step">
+            <h3><span>2</span> นำ License Key ไปใส่ในตัวบอท</h3>
+            <p style="color:var(--soft); font-size:13px; line-height:1.6; margin-top:5px;">
+              เมื่อซื้อคีย์เรียบร้อยแล้ว คีย์จะปรากฏในเมนู <strong>"บัญชีของฉัน"</strong> ให้กดคัดลอกคีย์นั้นมาเปิดบอท (JL_Bot_Cookie.exe) แล้ววางในช่องสิทธิ์ใช้งาน จากนั้นกดเปิดใช้งาน
+            </p>
+          </div>
+          <div class="guide-step">
+            <h3><span>3</span> กดค้นหา Instance ของบอท</h3>
+            <p style="color:var(--soft); font-size:13px; line-height:1.6; margin-top:5px;">
+              กดปุ่มรีเฟรช ⟳ ระบบจะทำหารหา Instance ของโปรแกรมจำลองในระบบให้อัตโนมัติ ให้ทำการเลือกเครื่องที่รันเกมอยู่
+            </p>
+          </div>
+          <div class="guide-step">
+            <h3><span>4</span> ตั้งค่าและรันบอท</h3>
+            <p style="color:var(--soft); font-size:13px; line-height:1.6; margin-top:5px;">
+              เลือกตัวเลือกการรันและบูสต์ไอเทมในหน้าแท็บตัวเลือก จากนั้นกดปุ่ม <strong>"▶ เริ่มบอท"</strong> เพื่อสั่งให้บอทเริ่มการสแกนและควบคุมเกมอัตโนมัติทันที
+            </p>
+          </div>
+        </div>
+
+        <div class="side-stack">
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h2>วิดีโอสอนใช้งาน</h2>
+                <p>พื้นที่สำหรับคลิปติดตั้ง emulator, ใส่คีย์ และเริ่มรันบอท</p>
+              </div>
+            </div>
+            <button type="button" class="video-mockup" data-video-url="https://youtu.be/PIKEcDoKbZY" data-video-title="ขั้นตอนการใช้งาน JL Bot Cookie" aria-label="วิดีโอสอนใช้งาน JL Bot Cookie">
+              <div class="play-btn"></div>
+              <div class="video-title-overlay">ขั้นตอนการใช้งาน JL Bot Cookie</div>
+            </button>
+            <div class="video-slot-note">แนะนำให้อัปโหลดวิดีโอเป็น YouTube แบบไม่แสดงสาธารณะ แล้วนำลิงก์มาใส่ตรงนี้เพื่อให้เปิดบนมือถือและคอมได้ลื่นกว่าไฟล์วิดีโอตรง</div>
+          </div>
+
+          <div class="card" style="border-color: rgba(251, 191, 36, 0.4);">
+            <h3>เงื่อนไขการใช้คีย์</h3>
+            <p style="color:var(--soft); font-size:13px; line-height:1.6; margin-top:10px;">
+              📌 <strong>นับเวลาหลังส่งคีย์:</strong> ระยะเวลาของแพ็คเกจที่คุณเช่าจะเริ่มรันถอยหลังเมื่อร้านค้าอนุมัติสลิปและส่งคีย์ให้คุณเรียบร้อยแล้ว<br><br>
+              📌 <strong>จำกัดการล็อกเครื่อง:</strong> 1 คีย์ใช้งานได้เพียง 1 เครื่องจำลองเท่านั้น หากพบการนำคีย์ไปสตรีมหรือใช้งานพร้อมกันหลายระบบ คีย์จะติดล็อกสิทธิ์โดยอัตโนมัติ
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-download">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">ดาวน์โหลดโปรแกรม</h1>
+          <p class="page-desc">ดาวน์โหลดไฟล์บอท JL Bot Cookie ล่าสุด (ดาวน์โหลดได้เฉพาะเมื่อมีคีย์ที่ยังไม่หมดอายุเท่านั้น)</p>
+        </div>
+      </div>
+
+      <div id="mainDownloadContainer"></div>
+
+      <div class="info-grid">
+        <div class="mini-card">
+          <h3>สิ่งที่ต้องมี</h3>
+          <p>Windows 10/11, LDPlayer หรือ MuMu และอินเทอร์เน็ตสำหรับตรวจ license</p>
+        </div>
+        <div class="mini-card">
+          <h3>วิธีเริ่ม</h3>
+          <p>เปิดโปรแกรม ใส่ key เลือก instance แล้วกด Start จากหน้าคอนโทรล</p>
+        </div>
+        <div class="mini-card">
+          <h3>ย้ายเครื่อง</h3>
+          <p>หากเปลี่ยนเครื่องหรือระบบ HWID เปลี่ยนแปลง กรุณาติดต่อแอดมินเพื่อรีเซ็ตสิทธิ์</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-contact">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">ช่องทางการติดต่อ</h1>
+          <p class="page-desc">หากมีข้อสงสัยการใช้งาน ต้องการรีเซ็ตสิทธิ์ หรือระบบชำระเงินมีปัญหา ติดต่อเราได้ทันที</p>
+        </div>
+      </div>
+
+      <div class="card" style="max-width: 780px; margin: 0 auto;">
+        <div class="openchat-card">
+          <img class="line-qr" src="assets/line_openchat_qr.png" alt="QR Code LINE OpenChat JLBotCookie">
+          <div>
+            <span class="pill green">LINE OpenChat</span>
+            <h2 style="margin-top:10px;">JLBotCookie</h2>
+            <p>เข้าร่วมกลุ่มเพื่อสอบถามการใช้งาน รับข่าวอัปเดต และติดตามกิจกรรมแจกคีย์ฟรีใน OpenChat</p>
+            <div class="openchat-list">
+              <span>แจ้งปัญหาใช้งานและขอรีเซ็ตเครื่อง</span>
+              <span>ติดตามประกาศเวอร์ชันใหม่และไฟล์ล่าสุด</span>
+              <span>มีแจกคีย์ฟรีใน OpenChat ตามกิจกรรมของร้าน</span>
+            </div>
+            <a class="btn green" href="https://line.me/ti/g2/Hj3p8kzDYjK1t_rc2FtVu_sIOMznpicklSD-mg?utm_source=invitation&utm_medium=link_copy&utm_campaign=default" target="_blank" rel="noopener">เข้าร่วม OpenChat</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="video-modal" id="videoModal" aria-hidden="true">
+    <div class="video-modal-box">
+      <div class="video-modal-head">
+        <strong id="videoModalTitle">วิดีโอ</strong>
+        <button class="btn secondary" type="button" id="closeVideoModal" style="min-height:32px; padding:0 10px;">ปิด</button>
+      </div>
+      <iframe class="video-frame" id="videoFrame" title="JL Bot Cookie video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <div class="shell">
+      <span>JL Bot Cookie</span>
+      <span>ซื้อคีย์ เช็คประวัติ ดาวน์โหลดโปรแกรม</span>
+    </div>
+  </footer>
+
+  <script>
+    const SESSION_KEY = "jl_bot_cookie_session";
+    const API_BASE = window.JL_API_BASE || (location.protocol === "file:" ? "https://jlcookie-license.aura-secretary.workers.dev" : "");
+    const fileName = "JLmain_V1.0.1_Premium.exe";
+    const seededActivity = [];
+    const planData = {
+      "1 วัน": { code: "1d", price: 10, duration: "24 ชั่วโมง", days: 1 },
+      "7 วัน": { code: "7d", price: 50, duration: "7 วัน", days: 7 },
+      "30 วัน": { code: "30d", price: 150, duration: "30 วัน", days: 30 }
+    };
+    const codeToPlanName = {
+      "1d": "1 วัน",
+      "7d": "7 วัน",
+      "30d": "30 วัน"
+    };
+
+    const els = {
+      userChip: document.getElementById("userChip"),
+      loginNavBtn: document.getElementById("loginNavBtn"),
+      logoutBtn: document.getElementById("logoutBtn"),
+      buyAccountStatus: document.getElementById("buyAccountStatus"),
+      sumPlan: document.getElementById("sumPlan"),
+      sumDuration: document.getElementById("sumDuration"),
+      sumPrice: document.getElementById("sumPrice"),
+      payAmount: document.getElementById("payAmount"),
+      payPlanText: document.getElementById("payPlanText"),
+      orderNote: document.getElementById("orderNote"),
+      orderList: document.getElementById("orderList"),
+      orderCount: document.getElementById("orderCount"),
+      latestKeyBox: document.getElementById("latestKeyBox"),
+      latestStatus: document.getElementById("latestStatus")
+    };
+
+    let selectedPlan = "7 วัน";
+    let session = loadSession();
+    let accountOrders = [];
+    let downloadInfo = null;
+    let liveActivity = [];
+    let planStock = {};
+    let activityIndex = 0;
+    let countdownInterval = null;
+
+    function loadSession() {
+      try {
+        return JSON.parse(localStorage.getItem(SESSION_KEY)) || { token: "", user: null };
+      } catch (error) {
+        return { token: "", user: null };
+      }
+    }
+
+    function saveSession(nextSession) {
+      session = nextSession || { token: "", user: null };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    }
+
+    function clearSession() {
+      session = { token: "", user: null };
+      accountOrders = [];
+      downloadInfo = null;
+      localStorage.removeItem(SESSION_KEY);
+    }
+
+    function currentUser() {
+      return session.user || null;
+    }
+
+    function apiUrl(path) {
+      return `${API_BASE}${path}`;
+    }
+
+    async function api(path, options = {}) {
+      const headers = Object.assign({}, options.headers || {});
+      if (session.token) headers.authorization = `Bearer ${session.token}`;
+      const init = Object.assign({}, options, { headers });
+      const res = await fetch(apiUrl(path), init);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) throw new Error(data.msg || data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    async function postJson(path, body) {
+      return api(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+    }
+
+    function esc(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    function setInlineMessage(node, text, color) {
+      node.textContent = text;
+      node.style.color = color;
+    }
+
+    function maskName(name) {
+      const clean = String(name || "ลูกค้า").trim();
+      if (!clean) return "ลูกค้า*****";
+      if (clean.includes("*")) return clean;
+      return clean.length <= 3 ? `${clean}*****` : `${clean.slice(0, 3)}*****`;
+    }
+
+    function formatDate(epoch) {
+      if (!epoch) return "-";
+      return new Date(Number(epoch) * 1000).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short", hour12: false });
+    }
+
+    function relativeTime(epoch) {
+      const diff = Math.max(1, Math.floor((Date.now() / 1000 - Number(epoch || 0)) / 60));
+      if (diff < 60) return `${diff} นาทีที่แล้ว`;
+      const hours = Math.floor(diff / 60);
+      if (hours < 24) return `${hours} ชั่วโมงที่แล้ว`;
+      return `${Math.floor(hours / 24)} วันที่แล้ว`;
+    }
+
+    function planLabelFromCode(code) {
+      const found = Object.entries(planData).find(([, data]) => data.code === code);
+      return found ? found[0] : code || "-";
+    }
+
+    function statusText(status) {
+      if (status === "pending_review") return "รอตรวจสลิป";
+      if (status === "payment_verified") return "ตรวจสลิปผ่าน";
+      if (status === "delivered") return "ส่งคีย์แล้ว";
+      if (status === "rejected") return "ไม่ผ่าน";
+      return status || "-";
+    }
+
+    function statusClass(status) {
+      if (status === "delivered") return "pill green";
+      if (status === "rejected") return "pill red";
+      if (status === "payment_verified") return "pill";
+      return "pill amber";
+    }
+
+    function orderExpiresMs(order) {
+      if (!order || order.status !== "delivered" || !order.approved_at) return 0;
+      return (Number(order.approved_at) + Number(order.duration_days || 0) * 86400) * 1000;
+    }
+
+    function isOrderActive(order) {
+      const expires = orderExpiresMs(order);
+      return expires > Date.now();
+    }
+
+    function latestDeliveredOrder() {
+      return accountOrders
+        .filter((order) => order.status === "delivered" && order.key_code)
+        .sort((a, b) => Number(b.approved_at || b.created_at || 0) - Number(a.approved_at || a.created_at || 0))[0];
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("อ่านไฟล์สลิปไม่สำเร็จ"));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    const tabAuthLogin = document.getElementById("tabAuthLogin");
+    const tabAuthRegister = document.getElementById("tabAuthRegister");
+    const loginForm = document.getElementById("loginForm");
+    const registerForm = document.getElementById("registerForm");
+
+    function toggleAuthTab(tab) {
+      if (tab === "login") {
+        tabAuthLogin.classList.add("active");
+        tabAuthRegister.classList.remove("active");
+        loginForm.style.display = "block";
+        registerForm.style.display = "none";
+      } else {
+        tabAuthLogin.classList.remove("active");
+        tabAuthRegister.classList.add("active");
+        loginForm.style.display = "none";
+        registerForm.style.display = "block";
+      }
+    }
+
+    tabAuthLogin.addEventListener("click", () => toggleAuthTab("login"));
+    tabAuthRegister.addEventListener("click", () => toggleAuthTab("register"));
+
+    function activityItems() {
+      return [
+        ...liveActivity.map((item) => ({ name: item.name, plan: item.plan_label, time: relativeTime(item.at) })),
+        ...seededActivity
+      ];
+    }
+
+    async function loadActivity() {
+      try {
+        const data = await api("/api/shop/activity");
+        liveActivity = data.activity || [];
+      } catch (error) {
+        liveActivity = [];
+      }
+    }
+
+    async function loadPlanStock() {
+      try {
+        const data = await api("/api/shop/plans");
+        planStock = {};
+        (data.plans || []).forEach((plan) => {
+          planStock[plan.code] = Number(plan.stock_count || 0);
+        });
+      } catch (error) {
+        planStock = {};
+      }
+      renderPlanStock();
+    }
+
+    function renderPlanStock() {
+      Object.entries(planData).forEach(([name, data]) => {
+        const count = planStock[data.code];
+        const countNode = document.querySelector(`[data-stock-count="${data.code}"]`);
+        const lineNode = document.querySelector(`[data-stock-line="${data.code}"]`);
+        const button = document.querySelector(`[data-plan="${name}"]`);
+        const label = Number.isFinite(count) ? `${count} คีย์` : "เช็คไม่ได้";
+        if (countNode) countNode.textContent = label;
+        if (lineNode) lineNode.classList.toggle("out", Number.isFinite(count) && count <= 0);
+        if (button) {
+          button.disabled = Number.isFinite(count) && count <= 0;
+          if (Number.isFinite(count) && count <= 0) {
+            button.textContent = "หมดชั่วคราว";
+          } else {
+            button.textContent = "เลือก " + name;
+          }
+        }
+      });
+      const selectedData = planData[selectedPlan];
+      const selectedCount = selectedData ? planStock[selectedData.code] : NaN;
+      if (Number.isFinite(selectedCount) && selectedCount <= 0) {
+        const available = Object.entries(planData).find(([, data]) => Number(planStock[data.code] || 0) > 0);
+        if (available && available[0] !== selectedPlan) selectPlan(available[0]);
+      }
+    }
+
+    function renderActivity() {
+      const items = activityItems();
+      const strips = document.querySelectorAll(".activity-strip");
+      if (!items.length) {
+        strips.forEach((strip) => { strip.style.display = "none"; });
+        return;
+      }
+      const item = items[activityIndex % items.length];
+      const html = `คุณ <strong>${maskName(item.name)}</strong> เช่าแพ็ก ${item.plan} - ${item.time}`;
+      strips.forEach((strip) => { strip.style.display = ""; });
+      document.querySelectorAll("[data-activity-text]").forEach((node) => {
+        node.style.animation = "none";
+        node.offsetHeight;
+        node.innerHTML = html;
+        node.style.animation = "";
+      });
+      activityIndex += 1;
+    }
+
+    async function refreshSession() {
+      if (!session.token) return;
+      try {
+        const data = await api("/api/me");
+        saveSession({ token: session.token, user: data.user });
+      } catch (error) {
+        clearSession();
+      }
+    }
+
+    async function refreshOrders() {
+      if (!session.token) {
+        accountOrders = [];
+        return;
+      }
+      const data = await api("/api/orders");
+      accountOrders = data.orders || [];
+    }
+
+    async function refreshDownloadInfo() {
+      if (!session.token) {
+        downloadInfo = null;
+        return;
+      }
+      try {
+        downloadInfo = await api("/api/download-info");
+      } catch (error) {
+        downloadInfo = { ok: false, msg: error.message };
+      }
+    }
+
+    async function loadAccountData() {
+      if (!session.token) {
+        renderAccount();
+        return;
+      }
+      try {
+        await refreshOrders();
+      } catch (error) {
+        els.orderList.innerHTML = `<div class="empty-state">${esc(error.message)}</div>`;
+      }
+      renderAccount();
+    }
+
+    function goToStep(step) {
+      const step1 = document.getElementById("buy-step-1");
+      const step2 = document.getElementById("buy-step-2");
+      if (!step1 || !step2) return;
+      if (step === 1) {
+        step1.style.display = "block";
+        step2.style.display = "none";
+      } else if (step === 2) {
+        step1.style.display = "none";
+        step2.style.display = "grid";
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function showView(name) {
+      const target = document.getElementById(`view-${name}`) ? name : "home";
+      document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${target}`));
+      document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.route === target));
+      if (target === "account") loadAccountData();
+      if (target === "download") renderDownloadView();
+      if (target === "buy") {
+        renderAuthState();
+        goToStep(1); // Default to choosing a package
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function renderAuthState() {
+      const user = currentUser();
+      if (user) {
+        els.userChip.style.display = "inline-flex";
+        els.userChip.textContent = user.username;
+        els.loginNavBtn.style.display = "none";
+        els.logoutBtn.style.display = "inline-flex";
+        els.buyAccountStatus.textContent = `เข้าสู่ระบบแล้ว: ${user.username}`;
+        els.buyAccountStatus.className = "pill green";
+      } else {
+        els.userChip.style.display = "none";
+        els.loginNavBtn.style.display = "inline-flex";
+        els.loginNavBtn.textContent = "เข้าสู่ระบบ";
+        els.loginNavBtn.dataset.route = "auth";
+        els.logoutBtn.style.display = "none";
+        els.buyAccountStatus.textContent = "กรุณาเข้าสู่ระบบก่อนซื้อ";
+        els.buyAccountStatus.className = "pill amber";
+      }
+    }
+
+    function selectPlan(name) {
+      selectedPlan = name;
+      const data = planData[name] || planData["7 วัน"];
+      document.querySelectorAll("[data-plan-card]").forEach((card) => {
+        const active = card.dataset.planCard === name;
+        card.classList.toggle("selected", active);
+        const button = card.querySelector("[data-plan]");
+        if (button) button.classList.toggle("secondary", !active);
+      });
+      els.sumPlan.textContent = name;
+      els.sumDuration.textContent = data.duration;
+      els.sumPrice.textContent = `${data.price}฿`;
+      els.payAmount.textContent = `${data.price}฿`;
+      els.payPlanText.textContent = `แพ็ก ${name} / ${data.price}฿`;
+      const confirmPlanPrice = document.getElementById("confirmPlanPrice");
+      if (confirmPlanPrice) confirmPlanPrice.textContent = data.price;
+    }
+
+    function renderAccount() {
+      const user = currentUser();
+      if (countdownInterval) clearInterval(countdownInterval);
+      if (!user) {
+        els.orderCount.textContent = "ยังไม่ได้เข้าสู่ระบบ";
+        els.orderList.innerHTML = `<div class="empty-state">เข้าสู่ระบบเพื่อดูรายการซื้อ คีย์ และไฟล์ดาวน์โหลดของคุณ</div>`;
+        els.latestStatus.textContent = "ต้องเข้าสู่ระบบ";
+        els.latestStatus.className = "pill amber";
+        els.latestKeyBox.innerHTML = `<div class="empty-state">ยังไม่มีข้อมูลบัญชี</div>`;
+        return;
+      }
+
+      const orders = accountOrders.slice().sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+      els.orderCount.textContent = `${orders.length} รายการ`;
+      els.orderList.innerHTML = orders.length ? orders.map((order) => {
+        const keyText = order.key_code ? order.key_code : "รอร้านตรวจสลิป";
+        const expiresText = order.status === "delivered" ? formatDate(orderExpiresMs(order) / 1000) : "เริ่มนับหลังร้านส่งคีย์";
+        return `
+          <div class="order-row">
+            <span>${esc(order.id)} • ${esc(order.plan_label || planLabelFromCode(order.plan))} • ${esc(order.amount)}฿</span>
+            <strong class="${esc(statusClass(order.status))}">${esc(statusText(order.status))}</strong>
+            <span>คีย์</span>
+            <strong class="key-code">${esc(keyText)}</strong>
+            <span>เวลาจะเริ่มนับถอยหลังเมื่อร้านอนุมัติส่งคีย์แล้ว</span>
+            <strong>หมดอายุ: ${esc(expiresText)}</strong>
+          </div>
+        `;
+      }).join("") : `<div class="empty-state">ยังไม่มีรายการซื้อ กดซื้อคีย์เพื่อเริ่มใช้งาน</div>`;
+
+      const latest = latestDeliveredOrder();
+      if (!latest) {
+        els.latestStatus.textContent = orders.length ? "รอตรวจสลิป" : "ยังไม่มีคีย์";
+        els.latestStatus.className = orders.length ? "pill amber" : "pill amber";
+        els.latestKeyBox.innerHTML = `<div class="empty-state">${orders.length ? "ร้านกำลังตรวจรายการ เมื่ออนุมัติแล้วคีย์จะแสดงตรงนี้" : "เมื่อซื้อคีย์แล้ว รายการล่าสุดจะแสดงตรงนี้"}</div>`;
+        return;
+      }
+
+      const active = isOrderActive(latest);
+      els.latestStatus.textContent = active ? "พร้อมใช้" : "หมดอายุ";
+      els.latestStatus.className = active ? "pill green" : "pill red";
+      els.latestKeyBox.innerHTML = `
+        <div class="key-line" style="display: flex; flex-direction: column; gap: 12px; align-items: stretch;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div style="min-width: 0; flex: 1;">
+              <span>License Key (1 คีย์ ต่อ 1 เครื่อง)</span>
+              <strong class="key-code" id="latestKey" style="font-size: 15px;">${esc(latest.key_code)}</strong>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn secondary" type="button" id="copyLatestKey" style="min-height: 34px; padding: 0 10px; font-size: 12px;">คัดลอก</button>
+              <button class="btn green" type="button" id="downloadLatestBtn" style="min-height: 34px; padding: 0 10px; font-size: 12px; display: ${active ? "inline-flex" : "none"};">ดาวน์โหลด</button>
+            </div>
+          </div>
+          <div style="border-top: 1px solid rgba(148, 163, 184, 0.1); padding-top: 8px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; color: var(--muted); margin: 0;">เวลาคงเหลือจริง:</span>
+            <strong id="keyCountdown" style="font-size: 13px; color: var(--amber2); font-family: monospace;">กำลังคำนวณ...</strong>
+          </div>
+        </div>
+      `;
+      document.getElementById("copyLatestKey").addEventListener("click", copyLatestKey);
+      document.getElementById("downloadLatestBtn").addEventListener("click", () => showView("download"));
+      startKeyCountdown(orderExpiresMs(latest));
+    }
+
+    function startKeyCountdown(expiresAtTimestamp) {
+      if (countdownInterval) clearInterval(countdownInterval);
+      const updateTimer = () => {
+        const diff = expiresAtTimestamp - Date.now();
+        const countdownEl = document.getElementById("keyCountdown");
+        const downloadBtn = document.getElementById("downloadLatestBtn");
+        const statusEl = document.getElementById("latestStatus");
+        if (diff <= 0) {
+          if (countdownEl) countdownEl.innerHTML = "<span style='color:var(--red); font-weight:bold;'>หมดอายุการใช้งาน</span>";
+          if (downloadBtn) downloadBtn.style.display = "none";
+          if (statusEl) {
+            statusEl.textContent = "หมดอายุ";
+            statusEl.className = "pill red";
+          }
+          clearInterval(countdownInterval);
+          return;
+        }
+        const days = Math.floor(diff / 86400000);
+        const hours = Math.floor((diff % 86400000) / 3600000);
+        const minutes = Math.floor((diff % 3600000) / 60000);
+        const seconds = Math.floor((diff % 60000) / 1000);
+        const prefix = days > 0 ? `${days} วัน ` : "";
+        if (countdownEl) countdownEl.textContent = `${prefix}${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+      };
+      updateTimer();
+      countdownInterval = setInterval(updateTimer, 1000);
+    }
+
+    async function renderDownloadView() {
+      const user = currentUser();
+      const downloadContainer = document.getElementById("mainDownloadContainer");
+      if (!user) {
+        downloadContainer.innerHTML = `<div class="empty-state" style="width: 100%;">กรุณาเข้าสู่ระบบเพื่อดาวน์โหลดโปรแกรม</div>`;
+        return;
+      }
+      downloadContainer.innerHTML = `
+        <div class="empty-state" style="width: 100%;">
+          <span class="activity-dot" style="display: inline-block; margin-right: 8px;"></span>
+          กำลังดึงข้อมูลไฟล์ดาวน์โหลดล่าสุด...
+        </div>
+      `;
+      try {
+        await Promise.all([
+          refreshOrders().catch(() => {}),
+          refreshDownloadInfo().catch(() => {})
+        ]);
+      } catch (e) {}
+      const latest = latestDeliveredOrder();
+      if (!latest) {
+        downloadContainer.innerHTML = `<div class="empty-state" style="width: 100%;">คุณยังไม่มีคีย์ที่ร้านอนุมัติแล้วสำหรับดาวน์โหลดโปรแกรม</div>`;
+        return;
+      }
+      if (!isOrderActive(latest)) {
+        downloadContainer.innerHTML = `<div class="empty-state" style="width: 100%; border-color: var(--red); color: var(--red);">คีย์การใช้งานของคุณหมดอายุแล้ว ไม่สามารถเข้าถึงและดาวน์โหลดไฟล์โปรแกรมได้</div>`;
+        return;
+      }
+      const downloadUrl = downloadInfo && downloadInfo.download_url ? downloadInfo.download_url : "";
+      let zipUrl = "";
+      if (downloadUrl.endsWith(".exe")) {
+        zipUrl = downloadUrl.substring(0, downloadUrl.length - 4) + ".zip";
+      }
+      downloadContainer.innerHTML = `
+        <div class="download-card" style="display: flex; flex-direction: column; gap: 16px; align-items: flex-start; padding: 24px;">
+          <div style="display: flex; align-items: center; gap: 16px; width: 100%;">
+            <img src="assets/app_icon.png" alt="JL Bot Cookie icon" style="width: 56px; height: 56px;">
+            <div>
+              <h2 style="margin: 0; font-size: 18px;">${esc(fileName)}</h2>
+              <p style="margin: 4px 0 0; opacity: 0.7; font-size: 13px;">ไฟล์โปรแกรม Windows เวอร์ชันล่าสุด V1.0.1</p>
+            </div>
+          </div>
+          <div style="display: flex; gap: 12px; width: 100%; margin-top: 8px;">
+            ${downloadUrl ? `<a class="btn green" href="${esc(downloadUrl)}" download style="flex: 1; text-align: center; justify-content: center; padding: 12px 18px;">ดาวน์โหลด (.EXE)</a>` : `<span class="pill amber">รอเพิ่มลิงก์ดาวน์โหลด</span>`}
+            ${zipUrl ? `<a class="btn" href="${esc(zipUrl)}" download style="flex: 1; text-align: center; justify-content: center; padding: 12px 18px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border);">ดาวน์โหลด (.ZIP)</a>` : ""}
+          </div>
+        </div>
+      `;
+    }
+
+    async function copyLatestKey(event) {
+      const button = event.currentTarget;
+      const key = document.getElementById("latestKey")?.textContent || "";
+      try {
+        await navigator.clipboard.writeText(key);
+        button.textContent = "คัดลอกแล้ว";
+      } catch (error) {
+        button.textContent = "คัดลอกไม่ได้";
+      }
+      setTimeout(() => { button.textContent = "คัดลอก"; }, 1300);
+    }
+
+    function toEmbedVideoUrl(url) {
+      const raw = String(url || "").trim();
+      if (!raw) return "";
+      try {
+        const parsed = new URL(raw);
+        if (parsed.hostname.includes("youtu.be")) {
+          return `https://www.youtube.com/embed/${parsed.pathname.replace("/", "")}?autoplay=1`;
+        }
+        if (parsed.hostname.includes("youtube.com")) {
+          const id = parsed.searchParams.get("v");
+          if (id) return `https://www.youtube.com/embed/${id}?autoplay=1`;
+        }
+      } catch (error) {
+        return raw;
+      }
+      return raw;
+    }
+
+    function openVideoModal(url, title) {
+      const embedUrl = toEmbedVideoUrl(url);
+      if (!embedUrl) {
+        alert("ยังไม่ได้เพิ่มลิงก์วิดีโอ");
+        return;
+      }
+      document.getElementById("videoModalTitle").textContent = title || "วิดีโอ";
+      document.getElementById("videoFrame").src = embedUrl;
+      document.getElementById("videoModal").classList.add("open");
+      document.getElementById("videoModal").setAttribute("aria-hidden", "false");
+    }
+
+    function closeVideoModal() {
+      document.getElementById("videoFrame").src = "";
+      document.getElementById("videoModal").classList.remove("open");
+      document.getElementById("videoModal").setAttribute("aria-hidden", "true");
+    }
+
+    document.getElementById("closeVideoModal").addEventListener("click", closeVideoModal);
+    document.getElementById("videoModal").addEventListener("click", (event) => {
+      if (event.target.id === "videoModal") closeVideoModal();
+    });
+
+    document.querySelectorAll("[data-video-url]").forEach((button) => {
+      button.addEventListener("click", () => openVideoModal(button.dataset.videoUrl, button.dataset.videoTitle));
+    });
+
+    document.querySelectorAll("[data-route]").forEach((item) => {
+      item.addEventListener("click", (event) => {
+        event.preventDefault();
+        showView(item.dataset.route);
+      });
+    });
+
+    document.querySelectorAll("[data-plan]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const currentActiveView = document.querySelector(".view.active")?.id;
+        selectPlan(button.dataset.plan);
+        showView("buy");
+        if (currentActiveView !== "view-buy") {
+          goToStep(2);
+        }
+      });
+    });
+    document.querySelectorAll("[data-plan-card]").forEach((card) => {
+      card.addEventListener("click", (e) => {
+        if (e.target.tagName !== "BUTTON") {
+          selectPlan(card.dataset.planCard);
+        }
+      });
+    });
+    const btnConfirmPlan = document.getElementById("btn-confirm-plan");
+    if (btnConfirmPlan) {
+      btnConfirmPlan.addEventListener("click", () => {
+        goToStep(2);
+      });
+    }
+    const btnBackToStep1 = document.getElementById("btn-back-to-step-1");
+    if (btnBackToStep1) {
+      btnBackToStep1.addEventListener("click", () => {
+        goToStep(1);
+      });
+    }
+    const btnBuyTabPremium = document.getElementById("btnBuyTabPremium");
+    const btnBuyTabProMax = document.getElementById("btnBuyTabProMax");
+    const buyPremiumPanel = document.getElementById("buy-premium-panel");
+    const buyProMaxPanel = document.getElementById("buy-promax-panel");
+
+    if (btnBuyTabPremium && btnBuyTabProMax) {
+      btnBuyTabPremium.addEventListener("click", () => {
+        btnBuyTabPremium.classList.add("active");
+        btnBuyTabProMax.classList.remove("active");
+        buyPremiumPanel.style.display = "block";
+        buyProMaxPanel.style.display = "none";
+      });
+
+      btnBuyTabProMax.addEventListener("click", () => {
+        btnBuyTabProMax.classList.add("active");
+        btnBuyTabPremium.classList.remove("active");
+        buyProMaxPanel.style.display = "block";
+        buyPremiumPanel.style.display = "none";
+      });
+    }
+    const btnCopyAcc = document.getElementById("btn-copy-acc");
+    if (btnCopyAcc) {
+      btnCopyAcc.addEventListener("click", () => {
+        navigator.clipboard.writeText("1663750298").then(() => {
+          const originalText = btnCopyAcc.textContent;
+          btnCopyAcc.textContent = "คัดลอกสำเร็จ! ✅";
+          btnCopyAcc.style.color = "var(--green)";
+          btnCopyAcc.style.borderColor = "var(--green)";
+          setTimeout(() => {
+            btnCopyAcc.textContent = originalText;
+            btnCopyAcc.style.color = "";
+            btnCopyAcc.style.borderColor = "";
+          }, 2000);
+        }).catch((err) => {
+          console.error("Failed to copy text: ", err);
+        });
+      });
+    }
+
+    document.getElementById("registerForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const username = document.getElementById("regUser").value.trim();
+      const password = document.getElementById("regPass").value.trim();
+      const confirmPassword = document.getElementById("regConfirmPass").value.trim();
+      const msg = document.getElementById("regMsg");
+      if (!username || !password || !confirmPassword) return setInlineMessage(msg, "กรุณากรอกข้อมูลให้ครบถ้วน", "var(--red)");
+      if (password !== confirmPassword) return setInlineMessage(msg, "รหัสผ่านไม่ตรงกัน", "var(--red)");
+      try {
+        setInlineMessage(msg, "กำลังสมัครสมาชิก...", "var(--amber2)");
+        const data = await postJson("/api/auth/register", { username, password, customer_ref: username });
+        saveSession({ token: data.token, user: data.user });
+        setInlineMessage(msg, "สมัครสมาชิกเรียบร้อย", "var(--green)");
+        renderAuthState();
+        await loadAccountData();
+        showView("buy");
+      } catch (error) {
+        setInlineMessage(msg, error.message, "var(--red)");
+      }
+    });
+
+    document.getElementById("loginForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const username = document.getElementById("loginUser").value.trim();
+      const password = document.getElementById("loginPass").value.trim();
+      const msg = document.getElementById("loginMsg");
+      try {
+        setInlineMessage(msg, "กำลังเข้าสู่ระบบ...", "var(--amber2)");
+        const data = await postJson("/api/auth/login", { username, password });
+        saveSession({ token: data.token, user: data.user });
+        setInlineMessage(msg, "เข้าสู่ระบบเรียบร้อย", "var(--green)");
+        renderAuthState();
+        await loadAccountData();
+        showView("account");
+      } catch (error) {
+        setInlineMessage(msg, error.message, "var(--red)");
+      }
+    });
+
+    els.logoutBtn.addEventListener("click", () => {
+      clearSession();
+      renderAuthState();
+      renderAccount();
+      showView("home");
+    });
+
+    document.getElementById("orderForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const user = currentUser();
+      if (!user) {
+        els.orderNote.textContent = "กรุณาเข้าสู่ระบบหรือสมัครสมาชิกก่อนสั่งซื้อ";
+        els.orderNote.style.color = "var(--amber2)";
+        showView("auth");
+        return;
+      }
+      const slip = document.getElementById("slipFile");
+      if (!slip.files.length) {
+        els.orderNote.textContent = "กรุณาอัปโหลดสลิปก่อนส่งออเดอร์";
+        els.orderNote.style.color = "var(--red)";
+        return;
+      }
+      const data = planData[selectedPlan] || planData["7 วัน"];
+      const available = planStock[data.code];
+      if (Number.isFinite(available) && available <= 0) {
+        els.orderNote.textContent = "แพ็กนี้คีย์หมดชั่วคราว กรุณาเลือกแพ็กอื่นหรือติดต่อแอดมิน";
+        els.orderNote.style.color = "var(--red)";
+        return;
+      }
+      const button = event.submitter || event.target.querySelector("button[type='submit']");
+      try {
+        button.disabled = true;
+        els.orderNote.textContent = "กำลังส่งสลิปให้ร้านตรวจ...";
+        els.orderNote.style.color = "var(--amber2)";
+        const file = slip.files[0];
+        const slipDataUrl = await readFileAsDataUrl(file);
+        const res = await postJson("/api/orders", {
+          plan: data.code,
+          customer_ref: user.customer_ref || user.username,
+          slip_name: file.name,
+          slip_mime: file.type || "image/jpeg",
+          slip_b64: slipDataUrl
+        });
+        slip.value = "";
+        els.orderNote.textContent = res.order.status === "payment_verified"
+          ? `ตรวจสลิปผ่านแล้ว รอร้านกดส่งคีย์: ${res.order.id}`
+          : `ส่งสลิปเรียบร้อยแล้ว รอตรวจสอบจากร้าน: ${res.order.id}`;
+        els.orderNote.style.color = "var(--green)";
+        await refreshOrders();
+        await loadPlanStock();
+        renderAccount();
+        showView("account");
+      } catch (error) {
+        els.orderNote.textContent = error.message;
+        els.orderNote.style.color = "var(--red)";
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    async function init() {
+      selectPlan(selectedPlan);
+      await refreshSession();
+      renderAuthState();
+      renderAccount();
+      await loadPlanStock();
+      await loadActivity();
+      renderActivity();
+      if (session.token) await loadAccountData();
+      setInterval(async () => {
+        if (activityIndex % 6 === 0) await loadActivity();
+        renderActivity();
+      }, 5200);
+    }
+
+    init();
+  </script>
+</body>
+</html>

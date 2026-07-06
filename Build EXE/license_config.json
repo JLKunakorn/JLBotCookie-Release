@@ -1,0 +1,6 @@
+{
+  "required": true,
+  "api_url": "https://jlcookie-license.aura-secretary.workers.dev/api/verify",
+  "public_key_hex": "6187603e57262360ddc79c9bd8dbdf6c11c7d5069ed7d10abc24bc646e603ba7",
+  "request_timeout_seconds": 8
+}

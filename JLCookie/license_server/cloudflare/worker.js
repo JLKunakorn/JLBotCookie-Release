@@ -1,0 +1,1722 @@
+const encoder = new TextEncoder();
+
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-headers": "content-type,authorization,x-admin-token,x-session-token",
+  "access-control-max-age": "86400",
+};
+
+function json(data, status = 200) {
+  return Response.json(data, { status, headers: CORS_HEADERS });
+}
+
+function corsOk() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
+
+function b64ToBytes(value) {
+  return Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+}
+
+function bytesToB64(bytes) {
+  let text = "";
+  for (const b of bytes) text += String.fromCharCode(b);
+  return btoa(text);
+}
+
+function bytesToHex(bytes) {
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBytes(hex) {
+  const clean = String(hex || "").replace(/[^a-f0-9]/gi, "");
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i += 1) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+function randomHex(bytes = 16) {
+  const data = new Uint8Array(bytes);
+  crypto.getRandomValues(data);
+  return bytesToHex(data);
+}
+
+function makeCode(prefix = "JL") {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const hex = bytesToHex(bytes).toUpperCase();
+  return `${prefix}-${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}`;
+}
+
+function cleanCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function cleanText(value, fallback = "") {
+  return String(value || fallback).trim();
+}
+
+function cleanUsername(value) {
+  return String(value || "").trim().replace(/[^\w.@-]/g, "").slice(0, 40);
+}
+
+function maskCustomerName(value) {
+  const raw = cleanText(value, "ลูกค้า").replace(/\s+/g, "");
+  if (raw.length <= 1) return raw + "*****";
+  if (raw.length <= 3) return raw[0] + "*****";
+  return raw.slice(0, 3) + "*****";
+}
+
+function clampInt(value, fallback, min, max) {
+  const n = Number(value || fallback);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function resolveDurationDays(body, fallbackDays = 7) {
+  if (body.duration_minutes !== undefined) {
+    const minutes = Number(body.duration_minutes);
+    if (Number.isFinite(minutes)) {
+      return Math.max(1, Math.min(365 * 24 * 60, minutes)) / 1440;
+    }
+  }
+  if (body.duration_seconds !== undefined) {
+    const seconds = Number(body.duration_seconds);
+    if (Number.isFinite(seconds)) {
+      return Math.max(60, Math.min(365 * 86400, seconds)) / 86400;
+    }
+  }
+  const days = Number(body.duration_days || fallbackDays);
+  if (!Number.isFinite(days)) return fallbackDays;
+  return Math.max(1 / 1440, Math.min(365, days));
+}
+
+async function signPayload(env, payload) {
+  const raw = encoder.encode(JSON.stringify(payload));
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    b64ToBytes(env.PRIV_PKCS8_B64),
+    { name: "Ed25519" },
+    false,
+    ["sign"],
+  );
+  const sig = new Uint8Array(await crypto.subtle.sign("Ed25519", key, raw));
+  return json({ payload_b64: bytesToB64(raw), sig: bytesToHex(sig) });
+}
+
+async function readJson(req) {
+  try {
+    return await req.json();
+  } catch (_) {
+    return {};
+  }
+}
+
+async function checkSlipOK(env, { slipName, slipMime, slipB64, amount }) {
+  const branchId = cleanText(env.SLIPOK_BRANCH_ID).replace(/^#/, "");
+  const apiKey = cleanText(env.SLIPOK_API_KEY);
+  if (!branchId || !apiKey) return { enabled: false };
+  if (!slipB64) return { enabled: true, ok: false, status: 400, msg: "ไม่มีไฟล์สลิปสำหรับตรวจ SlipOK" };
+
+  const form = new FormData();
+  const blob = new Blob([b64ToBytes(slipB64)], { type: slipMime || "image/jpeg" });
+  form.append("files", blob, slipName || "slip.jpg");
+  form.append("log", "true");
+  form.append("amount", String(amount));
+
+  let data = {};
+  let text = "";
+  try {
+    const res = await fetch(`https://api.slipok.com/api/line/apikey/${encodeURIComponent(branchId)}`, {
+      method: "POST",
+      headers: { "x-authorization": apiKey },
+      body: form,
+    });
+    text = await res.text();
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = {};
+    }
+    const slipData = data.data || {};
+    const ok = res.ok && data.success !== false && slipData.success !== false && Boolean(slipData.transRef || slipData.amount);
+    if (!ok) {
+      return {
+        enabled: true,
+        ok: false,
+        status: res.ok ? 400 : res.status,
+        msg: slipData.message || data.message || "SlipOK ตรวจสลิปไม่ผ่าน",
+      };
+    }
+    return {
+      enabled: true,
+      ok: true,
+      msg: slipData.message || "SlipOK ตรวจสลิปผ่าน",
+      trans_ref: slipData.transRef || "",
+      receiver: slipData.receiver?.displayName || slipData.receiver?.name || "",
+      amount: slipData.amount,
+    };
+  } catch (_) {
+    return { enabled: true, ok: false, status: 502, msg: "ติดต่อ SlipOK ไม่สำเร็จ" };
+  }
+}
+
+async function sha256Hex(value) {
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(String(value || ""))));
+  return bytesToHex(hash);
+}
+
+async function hashPassword(password, saltHex = randomHex(16), iterations = 100000) {
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: hexToBytes(saltHex), iterations },
+    key,
+    256,
+  );
+  return `pbkdf2$${iterations}$${saltHex}$${bytesToHex(new Uint8Array(bits))}`;
+}
+
+async function verifyPassword(password, stored) {
+  const parts = String(stored || "").split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+  const expected = await hashPassword(password, parts[2], Number(parts[1]) || 100000);
+  return expected === stored;
+}
+
+const SHOP_PLANS = {
+  "1d": { code: "1d", label: "1 วัน", duration_days: 1, amount: 10, max_seats: 1 },
+  "7d": { code: "7d", label: "7 วัน", duration_days: 7, amount: 50, max_seats: 1 },
+  "30d": { code: "30d", label: "30 วัน", duration_days: 30, amount: 150, max_seats: 1 },
+};
+
+function resolveShopPlan(value) {
+  const raw = cleanText(value, "7d").toLowerCase();
+  if (raw.includes("30")) return SHOP_PLANS["30d"];
+  if (raw.includes("1") && !raw.includes("7") && !raw.includes("30")) return SHOP_PLANS["1d"];
+  return SHOP_PLANS[raw] || SHOP_PLANS["7d"];
+}
+
+function orderId() {
+  return `ORDER-${Date.now().toString(36).toUpperCase()}-${randomHex(2).toUpperCase()}`;
+}
+
+function unauthorized() {
+  return json({ ok: false, msg: "Token ผู้ดูแลไม่ถูกต้อง" }, 401);
+}
+
+function isAdmin(req, env) {
+  const token = req.headers.get("x-admin-token") || "";
+  return env.ADMIN_TOKEN && token === env.ADMIN_TOKEN;
+}
+
+async function sessionReply(env, user) {
+  const now = Math.floor(Date.now() / 1000);
+  const token = randomHex(32);
+  const tokenHash = await sha256Hex(token);
+  await env.DB.prepare(
+    `INSERT INTO shop_sessions(token_hash, user_id, created_at, expires_at, last_seen_at)
+     VALUES(?, ?, ?, ?, ?)`,
+  ).bind(tokenHash, user.id, now, now + 30 * 86400, now).run();
+  return {
+    token,
+    user: {
+      id: user.id,
+      username: user.username,
+      customer_ref: user.customer_ref,
+    },
+  };
+}
+
+async function requireUser(req, env) {
+  const raw = req.headers.get("authorization") || req.headers.get("x-session-token") || "";
+  const token = raw.toLowerCase().startsWith("bearer ") ? raw.slice(7).trim() : raw.trim();
+  if (!token) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const tokenHash = await sha256Hex(token);
+  const row = await env.DB.prepare(
+    `SELECT shop_users.id, shop_users.username, shop_users.customer_ref, shop_sessions.expires_at
+     FROM shop_sessions
+     JOIN shop_users ON shop_users.id = shop_sessions.user_id
+     WHERE shop_sessions.token_hash = ?`,
+  ).bind(tokenHash).first();
+  if (!row || Number(row.expires_at || 0) < now) {
+    await env.DB.prepare("DELETE FROM shop_sessions WHERE token_hash = ?").bind(tokenHash).run();
+    return null;
+  }
+  await env.DB.prepare("UPDATE shop_sessions SET last_seen_at = ? WHERE token_hash = ?").bind(now, tokenHash).run();
+  return row;
+}
+
+function authRequired() {
+  return json({ ok: false, msg: "กรุณาเข้าสู่ระบบ" }, 401);
+}
+
+function keyReply(row) {
+  return {
+    code: row.code,
+    plan: row.plan,
+    duration_days: row.duration_days,
+    expires_at: row.expires_at,
+    max_seats: row.max_seats,
+    status: row.status,
+    delivered_at: row.delivered_at,
+    order_id: row.order_id,
+    customer_ref: row.customer_ref,
+    revoked: row.revoked,
+  };
+}
+
+function shopOrderReply(row, includeSlip = false) {
+  if (!row) return null;
+  const out = {
+    id: row.id,
+    username: row.username,
+    plan: row.plan,
+    plan_label: row.plan_label,
+    duration_days: row.duration_days,
+    amount: row.amount,
+    max_seats: row.max_seats,
+    status: row.status,
+    customer_ref: row.customer_ref,
+    slip_name: row.slip_name,
+    slip_mime: row.slip_mime,
+    has_slip: Boolean(row.slip_b64),
+    key_code: row.key_code,
+    created_at: row.created_at,
+    approved_at: row.approved_at,
+    rejected_at: row.rejected_at,
+    admin_note: row.admin_note,
+  };
+  if (includeSlip) out.slip_b64 = row.slip_b64 || "";
+  return out;
+}
+
+async function findDeliveredByOrder(env, orderId) {
+  if (!orderId) return null;
+  return env.DB.prepare(
+    `SELECT code, plan, duration_days, expires_at, max_seats, revoked, status,
+            delivered_at, order_id, customer_ref
+     FROM lic_keys
+     WHERE order_id = ?`,
+  ).bind(orderId).first();
+}
+
+async function markDelivered(env, code, orderId, customerRef, now) {
+  const row = await env.DB.prepare(
+    `SELECT code, plan, duration_days, expires_at, max_seats, revoked, status,
+            delivered_at, order_id, customer_ref
+     FROM lic_keys
+     WHERE code = ?`,
+  ).bind(code).first();
+
+  if (!row) return { ok: false, status: 404, msg: "ไม่พบคีย์ในสต็อก" };
+  if (row.revoked) return { ok: false, status: 409, msg: "คีย์ถูกระงับ" };
+  if (row.status === "delivered") {
+    if (row.order_id === orderId) return { ok: true, row, reused: true };
+    return { ok: false, status: 409, msg: "คีย์นี้ถูกส่งให้ออเดอร์อื่นแล้ว" };
+  }
+  if (row.status !== "stock") return { ok: false, status: 409, msg: "คีย์นี้ไม่ได้อยู่ในสต็อก" };
+
+  const exp = Math.floor(now + Number(row.duration_days || 1) * 86400);
+  await env.DB.prepare(
+    `UPDATE lic_keys
+     SET status = 'delivered', delivered_at = ?, expires_at = ?, order_id = ?, customer_ref = ?
+     WHERE code = ? AND status = 'stock' AND expires_at IS NULL`,
+  ).bind(now, exp, orderId, customerRef, code).run();
+
+  const delivered = await findDeliveredByOrder(env, orderId);
+  if (!delivered || delivered.code !== code) {
+    return { ok: false, status: 409, msg: "ส่งคีย์ไม่สำเร็จ กรุณาลองใหม่" };
+  }
+  return { ok: true, row: delivered, reused: false };
+}
+
+async function deliverStockKey(env, plan, durationDays, maxSeats, orderIdValue, customerRef, now) {
+  const existing = await findDeliveredByOrder(env, orderIdValue);
+  if (existing) return { ok: true, reused: true, row: existing };
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = await env.DB.prepare(
+      `SELECT code
+       FROM lic_keys
+       WHERE status = 'stock'
+         AND revoked = 0
+         AND plan = ?
+         AND duration_days = ?
+         AND max_seats = ?
+       ORDER BY created_at ASC
+       LIMIT 1`,
+    ).bind(plan, durationDays, maxSeats).first();
+
+    if (!candidate) return { ok: false, status: 409, msg: "คีย์ในสต็อกหมด" };
+
+    try {
+      const result = await markDelivered(env, candidate.code, orderIdValue, customerRef, now);
+      if (result.ok) return result;
+    } catch (_) {
+      const afterRace = await findDeliveredByOrder(env, orderIdValue);
+      if (afterRace) return { ok: true, reused: true, row: afterRace };
+    }
+  }
+  return { ok: false, status: 409, msg: "ส่งคีย์ไม่สำเร็จ กรุณาลองใหม่" };
+}
+
+async function verify(req, env) {
+  const body = await readJson(req);
+  const code = cleanCode(body.key);
+  const hwid = cleanText(body.hwid);
+  const now = Math.floor(Date.now() / 1000);
+  const deny = (msg) => signPayload(env, { ok: false, msg, hwid, iat: now });
+
+  if (!code || !hwid) return deny("ข้อมูลคีย์/HWID ไม่ครบ");
+
+  const row = await env.DB.prepare(
+    `SELECT code, plan, duration_days, expires_at, max_seats, revoked, status, delivered_at
+     FROM lic_keys
+     WHERE code = ?`,
+  ).bind(code).first();
+
+  if (!row) return deny("คีย์ไม่ถูกต้อง");
+  if (row.revoked) return deny("คีย์ถูกระงับ");
+
+  if (row.status === "active_on_first_use" && !row.expires_at) {
+    const activeExpiresAt = now + Number(row.duration_days || 7) * 86400;
+    await env.DB.prepare(
+      `UPDATE lic_keys
+       SET status = 'delivered', expires_at = ?, delivered_at = ?
+       WHERE code = ?`
+    ).bind(activeExpiresAt, now, code).run();
+    row.status = "delivered";
+    row.expires_at = activeExpiresAt;
+    row.delivered_at = now;
+  }
+
+  if (row.status !== "delivered" || !row.expires_at) return deny("คีย์นี้ยังไม่ได้ถูกส่งจากร้าน");
+  if (now > row.expires_at) return deny("คีย์หมดอายุ");
+
+  const seatRows = await env.DB.prepare("SELECT hwid FROM lic_seats WHERE code = ?").bind(code).all();
+  const seats = (seatRows.results || []).map((r) => r.hwid);
+  if (!seats.includes(hwid) && seats.length >= Number(row.max_seats || 1)) {
+    return deny("คีย์นี้ใช้ครบจำนวนเครื่องแล้ว");
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO lic_seats(code, hwid, first_seen, last_seen)
+     VALUES(?, ?, ?, ?)
+     ON CONFLICT(code, hwid) DO UPDATE SET last_seen = excluded.last_seen`,
+  ).bind(code, hwid, now, now).run();
+
+  return signPayload(env, {
+    ok: true,
+    code,
+    plan: row.plan,
+    tier: "pro",
+    exp: row.expires_at,
+    delivered_at: row.delivered_at,
+    hwid,
+    iat: now,
+    token_exp: now + 6 * 3600,
+    app_version: env.APP_VERSION || "V1.0 Premium",
+    download_url: env.DOWNLOAD_URL || "",
+  });
+}
+
+async function mint(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const plan = cleanText(body.plan, "7d");
+  const durationDays = resolveDurationDays(body, 7);
+  const count = clampInt(body.count, 1, 1, 200);
+  const maxSeats = clampInt(body.max_seats, 1, 1, 5);
+  const prefix = cleanText(body.prefix, "JL").replace(/[^A-Z0-9]/gi, "").slice(0, 6).toUpperCase() || "JL";
+  const now = Math.floor(Date.now() / 1000);
+  const codes = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const code = makeCode(prefix);
+    await env.DB.prepare(
+      `INSERT INTO lic_keys(
+         code, plan, duration_days, expires_at, max_seats, revoked, status,
+         delivered_at, order_id, customer_ref, created_at, note
+       )
+       VALUES(?, ?, ?, NULL, ?, 0, 'stock', NULL, NULL, NULL, ?, ?)`,
+    ).bind(code, plan, durationDays, maxSeats, now, cleanText(body.note)).run();
+    codes.push(code);
+  }
+  return json({ ok: true, status: "stock", codes });
+}
+
+async function deliver(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const plan = cleanText(body.plan, "7d");
+  const durationDays = resolveDurationDays(body, 7);
+  const maxSeats = clampInt(body.max_seats, 1, 1, 5);
+  const orderId = cleanText(body.order_id);
+  const customerRef = cleanText(body.customer_ref);
+  const now = Math.floor(Date.now() / 1000);
+
+  if (!orderId) return json({ ok: false, msg: "กรุณาใส่เลขออเดอร์" }, 400);
+
+  const result = await deliverStockKey(env, plan, durationDays, maxSeats, orderId, customerRef, now);
+  if (!result.ok) return json({ ok: false, msg: result.msg }, result.status || 409);
+  return json({ ok: true, reused: result.reused, key: keyReply(result.row) });
+}
+
+async function deliverKey(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const code = cleanCode(body.key);
+  const orderId = cleanText(body.order_id);
+  const customerRef = cleanText(body.customer_ref);
+  const now = Math.floor(Date.now() / 1000);
+
+  if (!code) return json({ ok: false, msg: "กรุณาใส่คีย์" }, 400);
+  if (!orderId) return json({ ok: false, msg: "กรุณาใส่เลขออเดอร์" }, 400);
+
+  const existing = await findDeliveredByOrder(env, orderId);
+  if (existing) return json({ ok: true, reused: true, key: keyReply(existing) });
+
+  const result = await markDelivered(env, code, orderId, customerRef, now);
+  if (!result.ok) return json({ ok: false, msg: result.msg }, result.status || 409);
+  return json({ ok: true, reused: result.reused, key: keyReply(result.row) });
+}
+
+async function revoke(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const code = cleanCode(body.key);
+  if (!code) return json({ ok: false, msg: "กรุณาใส่คีย์" }, 400);
+  await env.DB.prepare("UPDATE lic_keys SET revoked = 1 WHERE code = ?").bind(code).run();
+  return json({ ok: true, code });
+}
+
+async function resetSeats(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const code = cleanCode(body.key);
+  if (!code) return json({ ok: false, msg: "กรุณาใส่คีย์" }, 400);
+  await env.DB.prepare("DELETE FROM lic_seats WHERE code = ?").bind(code).run();
+  return json({ ok: true, code });
+}
+
+async function stock(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const rows = await env.DB.prepare(
+    `SELECT plan, duration_days, max_seats, COUNT(*) AS count
+     FROM lic_keys
+     WHERE status = 'stock' AND revoked = 0
+     GROUP BY plan, duration_days, max_seats
+     ORDER BY plan, duration_days, max_seats`,
+  ).all();
+  return json({ ok: true, stock: rows.results || [] });
+}
+
+async function listKeys(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const rows = await env.DB.prepare(
+    `SELECT lic_keys.code, lic_keys.plan, lic_keys.duration_days, lic_keys.expires_at,
+            lic_keys.max_seats, lic_keys.revoked, lic_keys.status, lic_keys.delivered_at,
+            lic_keys.order_id, lic_keys.customer_ref, lic_keys.created_at, lic_keys.note,
+            COUNT(lic_seats.hwid) AS seat_count
+     FROM lic_keys
+     LEFT JOIN lic_seats ON lic_seats.code = lic_keys.code
+     GROUP BY lic_keys.code
+     ORDER BY lic_keys.created_at DESC
+     LIMIT 300`,
+  ).all();
+  return json({ ok: true, keys: rows.results || [] });
+}
+
+async function shopPlans(env) {
+  const rows = await env.DB.prepare(
+    `SELECT plan, duration_days, max_seats, COUNT(*) AS count
+     FROM lic_keys
+     WHERE status = 'stock' AND revoked = 0
+     GROUP BY plan, duration_days, max_seats`,
+  ).all();
+  const stockRows = rows.results || [];
+  const plans = Object.values(SHOP_PLANS).map((plan) => {
+    const stockCount = stockRows
+      .filter((row) =>
+        row.plan === plan.code &&
+        Number(row.duration_days) === Number(plan.duration_days) &&
+        Number(row.max_seats || 1) === Number(plan.max_seats || 1)
+      )
+      .reduce((sum, row) => sum + Number(row.count || 0), 0);
+    return { ...plan, stock_count: stockCount };
+  });
+  return json({ ok: true, plans });
+}
+
+async function shopActivity(env) {
+  const rows = await env.DB.prepare(
+    `SELECT shop_orders.plan_label, shop_orders.approved_at, shop_orders.created_at,
+            shop_orders.customer_ref, shop_users.username
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     WHERE shop_orders.status = 'delivered'
+     ORDER BY shop_orders.approved_at DESC
+     LIMIT 20`,
+  ).all();
+  const activity = (rows.results || []).map((row) => ({
+    name: maskCustomerName(row.customer_ref || row.username),
+    plan_label: row.plan_label,
+    at: row.approved_at || row.created_at,
+  }));
+  return json({ ok: true, activity });
+}
+
+async function registerUser(req, env) {
+  const body = await readJson(req);
+  const username = cleanUsername(body.username);
+  const password = cleanText(body.password);
+  const customerRef = cleanText(body.customer_ref || body.line || body.contact).slice(0, 120);
+  const now = Math.floor(Date.now() / 1000);
+
+  if (username.length < 3) return json({ ok: false, msg: "ชื่อผู้ใช้ต้องมีอย่างน้อย 3 ตัวอักษร" }, 400);
+  if (password.length < 6) return json({ ok: false, msg: "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร" }, 400);
+
+  const passwordHash = await hashPassword(password);
+  try {
+    await env.DB.prepare(
+      `INSERT INTO shop_users(username, password_hash, customer_ref, created_at, last_login_at)
+       VALUES(?, ?, ?, ?, ?)`,
+    ).bind(username, passwordHash, customerRef, now, now).run();
+  } catch (_) {
+    return json({ ok: false, msg: "ชื่อผู้ใช้นี้ถูกใช้แล้ว" }, 409);
+  }
+
+  const user = await env.DB.prepare(
+    "SELECT id, username, customer_ref FROM shop_users WHERE username = ?",
+  ).bind(username).first();
+  return json({ ok: true, ...(await sessionReply(env, user)) });
+}
+
+async function loginUser(req, env) {
+  const body = await readJson(req);
+  const username = cleanUsername(body.username);
+  const password = cleanText(body.password);
+  const now = Math.floor(Date.now() / 1000);
+  const user = await env.DB.prepare(
+    "SELECT id, username, password_hash, customer_ref FROM shop_users WHERE username = ?",
+  ).bind(username).first();
+
+  if (!user || !(await verifyPassword(password, user.password_hash))) {
+    return json({ ok: false, msg: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" }, 401);
+  }
+
+  await env.DB.prepare("UPDATE shop_users SET last_login_at = ? WHERE id = ?").bind(now, user.id).run();
+  return json({ ok: true, ...(await sessionReply(env, user)) });
+}
+
+async function me(req, env) {
+  const user = await requireUser(req, env);
+  if (!user) return authRequired();
+  return json({ ok: true, user: { id: user.id, username: user.username, customer_ref: user.customer_ref } });
+}
+
+async function createOrder(req, env) {
+  const user = await requireUser(req, env);
+  if (!user) return authRequired();
+  const body = await readJson(req);
+  const plan = resolveShopPlan(body.plan);
+  const slipName = cleanText(body.slip_name).slice(0, 160);
+  let slipMime = cleanText(body.slip_mime, "image/jpeg").slice(0, 80);
+  let slipB64 = cleanText(body.slip_b64);
+  const customerRef = cleanText(body.customer_ref || user.customer_ref || user.username).slice(0, 160);
+  const now = Math.floor(Date.now() / 1000);
+
+  const dataUrl = slipB64.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataUrl) {
+    slipMime = dataUrl[1].slice(0, 80);
+    slipB64 = dataUrl[2];
+  }
+  slipB64 = slipB64.replace(/\s+/g, "");
+
+  if (!slipName && !slipB64) return json({ ok: false, msg: "กรุณาอัปโหลดสลิป" }, 400);
+  if (slipB64 && !/^[A-Za-z0-9+/=]+$/.test(slipB64)) return json({ ok: false, msg: "ไฟล์สลิปไม่ถูกต้อง" }, 400);
+  if (slipB64.length > 850000) return json({ ok: false, msg: "ไฟล์สลิปใหญ่เกินไป" }, 413);
+
+  const slipCheck = await checkSlipOK(env, {
+    slipName,
+    slipMime,
+    slipB64,
+    amount: plan.amount,
+  });
+  if (slipCheck.enabled && !slipCheck.ok) {
+    return json({ ok: false, msg: "ตรวจสลิปไม่ผ่าน: " + slipCheck.msg }, slipCheck.status || 400);
+  }
+
+  const id = orderId();
+  let status = "pending_review";
+  let keyCode = null;
+  let approvedAt = null;
+  let adminNote = null;
+
+  if (slipCheck.enabled) {
+    status = "payment_verified";
+    adminNote = `SlipOK: ${slipCheck.msg}${slipCheck.trans_ref ? " / transRef " + slipCheck.trans_ref : ""}`;
+
+    // Auto-approve and deliver key!
+    const deliverResult = await deliverStockKey(
+      env,
+      plan.code,
+      Number(plan.duration_days || 7),
+      Number(plan.max_seats || 1),
+      id,
+      customerRef,
+      now
+    );
+    if (deliverResult.ok) {
+      status = "delivered";
+      keyCode = deliverResult.row.code;
+      approvedAt = now;
+      adminNote = `Auto-Approved by SlipOK: ${slipCheck.msg}${slipCheck.trans_ref ? " / transRef " + slipCheck.trans_ref : ""}`;
+    } else {
+      adminNote = `SlipOK OK but Stock Empty: ${slipCheck.msg}`;
+    }
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO shop_orders(
+       id, user_id, plan, plan_label, duration_days, amount, max_seats, status,
+       customer_ref, slip_name, slip_mime, slip_b64, slip_uploaded_at,
+       key_code, created_at, approved_at, rejected_at, admin_note
+     )
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+  ).bind(
+    id,
+    user.id,
+    plan.code,
+    plan.label,
+    plan.duration_days,
+    plan.amount,
+    plan.max_seats,
+    status,
+    customerRef,
+    slipName,
+    slipMime,
+    slipB64,
+    now,
+    keyCode,
+    now,
+    approvedAt,
+    adminNote,
+  ).run();
+
+  const row = await env.DB.prepare(
+    `SELECT shop_orders.*, shop_users.username
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     WHERE shop_orders.id = ?`,
+  ).bind(id).first();
+  return json({ ok: true, order: shopOrderReply(row) });
+}
+
+async function myOrders(req, env) {
+  const user = await requireUser(req, env);
+  if (!user) return authRequired();
+  const rows = await env.DB.prepare(
+    `SELECT shop_orders.*, shop_users.username
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     WHERE shop_orders.user_id = ?
+     ORDER BY shop_orders.created_at DESC
+     LIMIT 100`,
+  ).bind(user.id).all();
+  return json({ ok: true, orders: (rows.results || []).map((row) => shopOrderReply(row)) });
+}
+
+async function downloadInfo(req, env) {
+  const user = await requireUser(req, env);
+  if (!user) return authRequired();
+  const row = await env.DB.prepare(
+    `SELECT shop_orders.*, shop_users.username
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     WHERE shop_orders.user_id = ? AND shop_orders.status = 'delivered'
+     ORDER BY shop_orders.approved_at DESC
+     LIMIT 1`,
+  ).bind(user.id).first();
+  if (!row) return json({ ok: false, msg: "ยังไม่มีออเดอร์ที่อนุมัติแล้ว" }, 403);
+  return json({
+    ok: true,
+    version: env.APP_VERSION || "V1.0 Premium",
+    download_url: env.DOWNLOAD_URL || "",
+    order: shopOrderReply(row),
+  });
+}
+
+async function listShopOrders(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const rows = await env.DB.prepare(
+    `SELECT shop_orders.*, shop_users.username
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     ORDER BY shop_orders.created_at DESC
+     LIMIT 300`,
+  ).all();
+  return json({ ok: true, orders: (rows.results || []).map((row) => shopOrderReply(row)) });
+}
+
+async function shopOrderSlip(req, env, url) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const id = cleanText(url.searchParams.get("order_id"));
+  if (!id) return json({ ok: false, msg: "กรุณาใส่เลขออเดอร์" }, 400);
+  const row = await env.DB.prepare(
+    `SELECT shop_orders.*, shop_users.username
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     WHERE shop_orders.id = ?`,
+  ).bind(id).first();
+  if (!row) return json({ ok: false, msg: "ไม่พบออเดอร์" }, 404);
+  return json({ ok: true, order: shopOrderReply(row, true) });
+}
+
+async function approveShopOrder(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const id = cleanText(body.order_id);
+  const now = Math.floor(Date.now() / 1000);
+  if (!id) return json({ ok: false, msg: "กรุณาใส่เลขออเดอร์" }, 400);
+
+  const order = await env.DB.prepare(
+    `SELECT shop_orders.*, shop_users.username
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     WHERE shop_orders.id = ?`,
+  ).bind(id).first();
+  if (!order) return json({ ok: false, msg: "ไม่พบออเดอร์" }, 404);
+  if (order.status === "delivered" && order.key_code) return json({ ok: true, reused: true, order: shopOrderReply(order) });
+  if (order.status === "rejected") return json({ ok: false, msg: "ออเดอร์นี้ถูกปฏิเสธแล้ว" }, 409);
+
+  const result = await deliverStockKey(
+    env,
+    order.plan,
+    Number(order.duration_days || 7),
+    Number(order.max_seats || 1),
+    order.id,
+    order.customer_ref || order.username,
+    now,
+  );
+  if (!result.ok) return json({ ok: false, msg: result.msg }, result.status || 409);
+
+  await env.DB.prepare(
+    `UPDATE shop_orders
+     SET status = 'delivered', key_code = ?, approved_at = ?, admin_note = ?
+     WHERE id = ?`,
+  ).bind(result.row.code, now, cleanText(body.admin_note), id).run();
+
+  const updated = await env.DB.prepare(
+    `SELECT shop_orders.*, shop_users.username
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     WHERE shop_orders.id = ?`,
+  ).bind(id).first();
+  return json({ ok: true, reused: result.reused, order: shopOrderReply(updated), key: keyReply(result.row) });
+}
+
+async function rejectShopOrder(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const id = cleanText(body.order_id);
+  const note = cleanText(body.admin_note || body.note).slice(0, 300);
+  const now = Math.floor(Date.now() / 1000);
+  if (!id) return json({ ok: false, msg: "กรุณาใส่เลขออเดอร์" }, 400);
+  await env.DB.prepare(
+    `UPDATE shop_orders
+     SET status = 'rejected', rejected_at = ?, admin_note = ?
+     WHERE id = ? AND status != 'delivered'`,
+  ).bind(now, note, id).run();
+  return json({ ok: true, order_id: id });
+}
+
+async function generateFreeKey(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const plan = cleanText(body.plan, "7d");
+  const durationDays = Number(body.duration_days || 7);
+  const maxSeats = Number(body.max_seats || 1);
+  const note = cleanText(body.note, "Free Key").slice(0, 300);
+  const now = Math.floor(Date.now() / 1000);
+  const code = makeCode("FREE");
+
+  await env.DB.prepare(
+    `INSERT INTO lic_keys(
+       code, plan, duration_days, expires_at, max_seats, revoked, status,
+       delivered_at, order_id, customer_ref, created_at, note
+     )
+     VALUES(?, ?, ?, NULL, ?, 0, 'active_on_first_use', NULL, NULL, 'Free Key', ?, ?)`
+  ).bind(code, plan, durationDays, maxSeats, now, note).run();
+
+  return json({ ok: true, code });
+}
+
+function html(body) {
+  return new Response(body, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function adminPage() {
+  return html(`<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>จัดการคีย์ JLCookie</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #20150f;
+      --panel: #302116;
+      --panel2: #3a2a1e;
+      --line: #5a3b25;
+      --text: #f5e6d0;
+      --muted: #c9b79b;
+      --gold: #ffd23f;
+      --caramel: #c8783c;
+      --mint: #7ed957;
+      --berry: #ff6b6b;
+      --input: #1a110c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 "Segoe UI", Tahoma, sans-serif;
+    }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 24px; }
+    header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 16px;
+    }
+    h1, h2 { margin: 0; }
+    h1 { color: var(--gold); font-size: 26px; }
+    h2 { color: var(--gold); font-size: 17px; margin-bottom: 12px; }
+    .sub { color: var(--muted); margin-top: 4px; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      min-width: 0;
+    }
+    .span4 { grid-column: span 4; }
+    .span6 { grid-column: span 6; }
+    .span8 { grid-column: span 8; }
+    .span12 { grid-column: span 12; }
+    label { display: block; color: var(--muted); font-weight: 700; margin: 10px 0 5px; }
+    input, select {
+      width: 100%;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--input);
+      color: var(--text);
+      padding: 0 10px;
+      outline: none;
+    }
+    input:focus, select:focus { border-color: var(--gold); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    button {
+      min-height: 36px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--caramel);
+      color: #21140c;
+      font-weight: 800;
+      padding: 0 14px;
+      cursor: pointer;
+    }
+    button.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--line); }
+    button.danger { background: var(--berry); color: #fff; }
+    button.ok { background: var(--mint); }
+    button:disabled { opacity: .55; cursor: default; }
+    .status {
+      min-height: 36px;
+      background: #160e09;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: var(--muted);
+      white-space: pre-wrap;
+    }
+    .metrics { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); gap: 10px; }
+    .metric {
+      background: #160e09;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      min-height: 68px;
+    }
+    .metric b { display: block; color: var(--text); font-size: 22px; margin-bottom: 2px; }
+    .metric span { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .toolbar {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr auto;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+    .tableMeta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .muted { color: var(--muted); }
+    .nowrap { white-space: nowrap; }
+    .keyCell code { display: block; margin-bottom: 5px; }
+    .detail { color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .emptyRow { color: var(--muted); text-align: center; padding: 18px 7px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid var(--line); padding: 8px 7px; text-align: left; vertical-align: top; }
+    th { color: var(--gold); font-size: 12px; }
+    td { color: var(--text); font-size: 12px; }
+    code { color: var(--gold); user-select: all; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .pill.stock { color: var(--gold); }
+    .pill.delivered { color: var(--mint); }
+    .pill.pending_review { color: var(--gold); }
+    .pill.payment_verified { color: var(--blue); }
+    .pill.rejected { color: var(--berry); }
+    .pill.revoked { color: var(--berry); }
+    .pill.expired { color: var(--berry); }
+    .pill.active_on_first_use { color: #f59e0b; border-color: #f59e0b; }
+    .mini { min-height: 26px; padding: 0 8px; font-size: 12px; }
+    @media (max-width: 900px) {
+      .span4, .span6, .span8 { grid-column: span 12; }
+      .row, .row3, .toolbar, .metrics { grid-template-columns: 1fr; }
+      header { align-items: stretch; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>จัดการหลังบ้าน JL Bot Cookie</h1>
+        <div class="sub">ออเดอร์ลูกค้า · ตรวจสลิป · ส่งคีย์จากสต็อก · ล้างเครื่อง · ระงับคีย์</div>
+      </div>
+      <div class="buttons">
+        <button class="secondary" id="refreshBtn">รีเฟรช</button>
+        <button class="secondary" id="clearTokenBtn">ล้าง Token</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card span8">
+        <h2>Token ผู้ดูแล</h2>
+        <input id="adminToken" type="password" placeholder="วาง Token ผู้ดูแลที่นี่">
+        <div class="buttons">
+          <button class="ok" id="saveTokenBtn">ใช้ Token</button>
+        </div>
+      </section>
+      <section class="card span4">
+        <h2>สถานะ</h2>
+        <div id="status" class="status">พร้อมใช้งาน</div>
+      </section>
+
+      <section class="card span12">
+        <h2>ภาพรวมคีย์</h2>
+        <div class="metrics" id="overviewStats">
+          <div class="metric"><b>0</b><span>ในสต็อก</span></div>
+          <div class="metric"><b>0</b><span>ใช้งานอยู่</span></div>
+          <div class="metric"><b>0</b><span>หมดอายุ</span></div>
+          <div class="metric"><b>0</b><span>ระงับแล้ว</span></div>
+          <div class="metric"><b>0</b><span>เครื่องที่ผูก</span></div>
+          <div class="metric"><b>0</b><span>รอตรวจสลิป</span></div>
+        </div>
+      </section>
+
+      <section class="card span12">
+        <h2>ออเดอร์ลูกค้า</h2>
+        <div class="tableMeta">
+          <span id="orderCountText">ยังไม่มีข้อมูล</span>
+          <span>ลูกค้าอัปสลิป → ผู้ดูแลอนุมัติ → ระบบส่งคีย์จากสต็อกให้อัตโนมัติ</span>
+        </div>
+        <div style="overflow:auto">
+          <table>
+            <thead>
+              <tr><th>ออเดอร์</th><th>สถานะ</th><th>แพ็ก/ยอด</th><th>ลูกค้า</th><th>วันที่</th><th>คีย์</th><th>จัดการ</th></tr>
+            </thead>
+            <tbody id="ordersBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card span4">
+        <h2>สร้างสต็อกคีย์</h2>
+        <div class="row">
+          <div><label>แพ็ก</label><input id="mintPlan" value="7d"></div>
+          <div><label>จำนวนคีย์</label><input id="mintCount" type="number" min="1" max="200" value="10"></div>
+        </div>
+        <div class="row3">
+          <div><label>หน่วยเวลา</label><select id="mintDurationType"><option value="days">วัน</option><option value="minutes">นาที</option></select></div>
+          <div><label>ระยะเวลา</label><input id="mintDuration" type="number" min="1" value="7"></div>
+          <div><label>จำนวนเครื่อง</label><input id="mintSeats" type="number" min="1" max="5" value="1"></div>
+        </div>
+        <label>หมายเหตุ</label><input id="mintNote" placeholder="ไม่บังคับ">
+        <div class="buttons"><button id="mintBtn">สร้างคีย์เข้าสต็อก</button></div>
+      </section>
+
+      <section class="card span4">
+        <h2>ส่งคีย์จากสต็อก</h2>
+        <div class="row">
+          <div><label>แพ็ก</label><input id="deliverPlan" value="7d"></div>
+          <div><label>จำนวนเครื่อง</label><input id="deliverSeats" type="number" min="1" max="5" value="1"></div>
+        </div>
+        <div class="row">
+          <div><label>หน่วยเวลา</label><select id="deliverDurationType"><option value="days">วัน</option><option value="minutes">นาที</option></select></div>
+          <div><label>ระยะเวลา</label><input id="deliverDuration" type="number" min="1" value="7"></div>
+        </div>
+        <label>เลขออเดอร์</label><input id="deliverOrder" placeholder="ORDER-1001">
+        <label>ลูกค้า</label><input id="deliverCustomer" placeholder="LINE / ชื่อลูกค้า / หมายเหตุ">
+        <div class="buttons"><button id="deliverBtn">ส่งคีย์ให้ลูกค้า</button></div>
+      </section>
+
+      <section class="card span4">
+        <h2>จัดการคีย์เฉพาะ</h2>
+        <label>คีย์</label><input id="exactKey" placeholder="JL-XXXX-XXXX-XXXX-XXXX">
+        <label>เลขออเดอร์</label><input id="exactOrder" placeholder="ORDER-1001">
+        <label>ลูกค้า</label><input id="exactCustomer" placeholder="ไม่บังคับ">
+        <div class="buttons">
+          <button id="deliverExactBtn">ส่งคีย์นี้</button>
+          <button class="secondary" id="resetSeatBtn">ล้างเครื่อง</button>
+          <button class="danger" id="revokeBtn">ระงับคีย์</button>
+        </div>
+      </section>
+
+      <section class="card span4">
+        <h2>สรุปสต็อก</h2>
+        <div id="stockTable" class="status">ยังไม่มีข้อมูล</div>
+      </section>
+
+      <section class="card span4">
+        <h2>สร้างคีย์ฟรี (เริ่มนับเมื่อเริ่มใช้)</h2>
+        <div class="row">
+          <div>
+            <label>ระยะเวลา</label>
+            <select id="freePlan">
+              <option value="1d">1 วัน</option>
+              <option value="7d">7 วัน</option>
+              <option value="30d">30 วัน</option>
+            </select>
+          </div>
+          <div>
+            <label>จำนวนเครื่อง</label>
+            <input id="freeSeats" type="number" min="1" max="5" value="1">
+          </div>
+        </div>
+        <label>หมายเหตุ</label>
+        <input id="freeNote" placeholder="คีย์ฟรี / กิจกรรม">
+        <div class="buttons">
+          <button id="freeBtn" class="ok">สร้างคีย์ฟรี</button>
+        </div>
+        <div id="freeResult" style="margin-top:10px; font-weight:bold; color:var(--gold); font-family:monospace; font-size:12px; text-align:center; word-break:break-all;"></div>
+      </section>
+
+      <section class="card span12">
+        <h2>ค้นหาและจัดการคีย์</h2>
+        <div class="toolbar">
+          <div>
+            <label>ค้นหา</label>
+            <input id="keySearch" placeholder="คีย์ / ออเดอร์ / ลูกค้า / หมายเหตุ">
+          </div>
+          <div>
+            <label>สถานะ</label>
+            <select id="statusFilter">
+              <option value="all">ทุกสถานะ</option>
+              <option value="stock">ในสต็อก</option>
+              <option value="active">ใช้งานอยู่</option>
+              <option value="expired">หมดอายุ</option>
+              <option value="revoked">ระงับแล้ว</option>
+            </select>
+          </div>
+          <div>
+            <label>แพ็ก</label>
+            <select id="planFilter"><option value="all">ทุกแพ็ก</option></select>
+          </div>
+          <div class="buttons">
+            <button class="secondary" id="clearFilterBtn">ล้างตัวกรอง</button>
+          </div>
+        </div>
+        <div class="tableMeta">
+          <span id="keyCountText">ยังไม่มีข้อมูล</span>
+          <span>แสดงคีย์ล่าสุดสูงสุด 300 รายการ</span>
+        </div>
+        <div style="overflow:auto">
+          <table>
+            <thead>
+              <tr><th>คีย์</th><th>สถานะ</th><th>แพ็ก/อายุ</th><th>ลูกค้า/ออเดอร์</th><th>วันที่</th><th>เครื่อง</th><th>จัดการ</th></tr>
+            </thead>
+            <tbody id="keysBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const statusBox = $("status");
+let adminToken = sessionStorage.getItem("jl_admin_token") || "";
+let allKeys = [];
+let allStock = [];
+let allOrders = [];
+$("adminToken").value = adminToken;
+
+function setStatus(text, ok) {
+  statusBox.textContent = text;
+  statusBox.style.color = ok === false ? "var(--berry)" : ok === true ? "var(--mint)" : "var(--muted)";
+}
+
+function token() {
+  adminToken = $("adminToken").value.trim();
+  if (!adminToken) throw new Error("กรุณาใส่ Token ผู้ดูแล");
+  return adminToken;
+}
+
+async function api(path, options) {
+  const init = options || {};
+  init.headers = Object.assign({"x-admin-token": token()}, init.headers || {});
+  const res = await fetch(path, init);
+  const data = await res.json();
+  if (!res.ok || data.ok === false) throw new Error(data.msg || data.error || ("HTTP " + res.status));
+  return data;
+}
+
+function durationBody(typeId, valueId) {
+  const type = $(typeId).value;
+  const value = Number($(valueId).value || 0);
+  if (type === "minutes") return { duration_minutes: value };
+  return { duration_days: value };
+}
+
+function durationLabel(days) {
+  const n = Number(days || 0);
+  if (n > 0 && n < 1) return Math.round(n * 1440) + " นาที";
+  if (Number.isInteger(n)) return n + " วัน";
+  return Number(n.toFixed(3)) + " วัน";
+}
+
+function fmtTime(epoch) {
+  if (!epoch) return "-";
+  return new Date(Number(epoch) * 1000).toLocaleString("th-TH", { hour12: false });
+}
+
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+
+function keyState(row) {
+  if (row.revoked) return "revoked";
+  if (row.status === "stock") return "stock";
+  if (row.status === "active_on_first_use") return "active_on_first_use";
+  if (row.status === "delivered" && row.expires_at && nowSeconds() > Number(row.expires_at)) return "expired";
+  if (row.status === "delivered") return "active";
+  return row.status || "unknown";
+}
+
+function statusText(row) {
+  const state = keyState(row);
+  if (state === "revoked") return "ระงับแล้ว";
+  if (state === "stock") return "ในสต็อก";
+  if (state === "active_on_first_use") return "รอเปิดใช้งาน";
+  if (state === "expired") return "หมดอายุ";
+  if (state === "active") return "ใช้งานอยู่";
+  return row.status || "-";
+}
+
+function pill(row) {
+  const state = keyState(row);
+  return '<span class="pill ' + esc(state) + '">' + esc(statusText(row)) + '</span>';
+}
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function refresh() {
+  const [stock, keys, orders] = await Promise.all([
+    api("/api/admin/stock"),
+    api("/api/admin/keys"),
+    api("/api/admin/shop-orders"),
+  ]);
+  allStock = stock.stock || [];
+  allKeys = keys.keys || [];
+  allOrders = orders.orders || [];
+  renderStock(allStock);
+  renderOverview();
+  renderOrders();
+  populatePlanFilter();
+  renderKeys();
+  setStatus("โหลดข้อมูลแล้ว: " + allKeys.length + " คีย์ · " + allOrders.length + " ออเดอร์", true);
+}
+
+function renderStock(rows) {
+  if (!rows.length) {
+    $("stockTable").textContent = "ไม่มีคีย์ในสต็อก";
+    return;
+  }
+  $("stockTable").innerHTML = rows.map((r) =>
+    '<div><span class="pill stock">' + esc(r.plan) + '</span> ' +
+    durationLabel(r.duration_days) + ' · เครื่อง ' + esc(r.max_seats) + ' · <b>' + esc(r.count) + '</b> คีย์</div>'
+  ).join("");
+}
+
+function renderOverview() {
+  const stockCount = allStock.reduce((sum, r) => sum + Number(r.count || 0), 0);
+  const activeCount = allKeys.filter((r) => keyState(r) === "active").length;
+  const expiredCount = allKeys.filter((r) => keyState(r) === "expired").length;
+  const revokedCount = allKeys.filter((r) => keyState(r) === "revoked").length;
+  const seatCount = allKeys.reduce((sum, r) => sum + Number(r.seat_count || 0), 0);
+  const pendingOrderCount = allOrders.filter((r) => ["pending_review", "payment_verified"].includes(r.status)).length;
+  $("overviewStats").innerHTML =
+    '<div class="metric"><b>' + esc(stockCount) + '</b><span>ในสต็อก</span></div>' +
+    '<div class="metric"><b>' + esc(activeCount) + '</b><span>ใช้งานอยู่</span></div>' +
+    '<div class="metric"><b>' + esc(expiredCount) + '</b><span>หมดอายุ</span></div>' +
+    '<div class="metric"><b>' + esc(revokedCount) + '</b><span>ระงับแล้ว</span></div>' +
+    '<div class="metric"><b>' + esc(seatCount) + '</b><span>เครื่องที่ผูก</span></div>' +
+    '<div class="metric"><b>' + esc(pendingOrderCount) + '</b><span>รอตรวจสลิป</span></div>';
+}
+
+function populatePlanFilter() {
+  const select = $("planFilter");
+  const current = select.value || "all";
+  const plans = Array.from(new Set(allKeys.map((r) => r.plan).filter(Boolean))).sort();
+  select.innerHTML = '<option value="all">ทุกแพ็ก</option>' + plans.map((p) => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join("");
+  select.value = plans.includes(current) ? current : "all";
+}
+
+function filteredKeys() {
+  const q = $("keySearch").value.trim().toLowerCase();
+  const state = $("statusFilter").value;
+  const plan = $("planFilter").value;
+  return allKeys.filter((r) => {
+    if (state !== "all" && keyState(r) !== state) return false;
+    if (plan !== "all" && r.plan !== plan) return false;
+    if (!q) return true;
+    const haystack = [
+      r.code,
+      r.plan,
+      r.order_id,
+      r.customer_ref,
+      r.note,
+      statusText(r),
+    ].join(" ").toLowerCase();
+    return haystack.includes(q);
+  });
+}
+
+function dateBlock(row) {
+  return '<div class="detail">' +
+    'สร้าง: ' + esc(fmtTime(row.created_at)) + '<br>' +
+    'ส่ง: ' + esc(fmtTime(row.delivered_at)) + '<br>' +
+    'หมด: ' + esc(fmtTime(row.expires_at)) +
+    '</div>';
+}
+
+function customerBlock(row) {
+  const note = row.note ? '<br><span class="detail">หมายเหตุ: ' + esc(row.note) + '</span>' : "";
+  return '<div>' + esc(row.customer_ref || "-") +
+    '<br><span class="detail">ออเดอร์: ' + esc(row.order_id || "-") + '</span>' +
+    note + '</div>';
+}
+
+function planBlock(row) {
+  return '<div><b>' + esc(row.plan || "-") + '</b><br><span class="detail">' + durationLabel(row.duration_days) + '</span></div>';
+}
+
+function seatBlock(row) {
+  return '<span class="nowrap">' + esc(row.seat_count || 0) + '/' + esc(row.max_seats || 1) + '</span>';
+}
+
+function findKey(code) {
+  return allKeys.find((r) => r.code === code);
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  document.body.appendChild(input);
+  input.focus();
+  input.select();
+  const ok = document.execCommand("copy");
+  input.remove();
+  return ok;
+}
+
+function fillExactForm(row) {
+  if (!row) return;
+  $("exactKey").value = row.code || "";
+  $("exactOrder").value = row.order_id || "";
+  $("exactCustomer").value = row.customer_ref || "";
+}
+
+function renderKeys() {
+  const rows = filteredKeys();
+  $("keyCountText").textContent = "แสดง " + rows.length + " จาก " + allKeys.length + " คีย์";
+  if (!rows.length) {
+    $("keysBody").innerHTML = '<tr><td class="emptyRow" colspan="7">ไม่พบคีย์ตามตัวกรองนี้</td></tr>';
+    return;
+  }
+  $("keysBody").innerHTML = rows.map((r) => {
+    const actions =
+      '<button class="mini ok" data-copy="' + esc(r.code) + '">คัดลอกคีย์</button> ' +
+      '<button class="mini secondary" data-fill="' + esc(r.code) + '">เลือก</button> ' +
+      '<button class="mini secondary" data-reset="' + esc(r.code) + '">ล้างเครื่อง</button> ' +
+      '<button class="mini danger" data-revoke="' + esc(r.code) + '">ระงับ</button>';
+    return '<tr>' +
+      '<td class="keyCell"><code>' + esc(r.code) + '</code><span class="detail">' + esc(r.note || "") + '</span></td>' +
+      '<td>' + pill(r) + '</td>' +
+      '<td>' + planBlock(r) + '</td>' +
+      '<td>' + customerBlock(r) + '</td>' +
+      '<td>' + dateBlock(r) + '</td>' +
+      '<td>' + seatBlock(r) + '</td>' +
+      '<td>' + actions + '</td>' +
+    '</tr>';
+  }).join("");
+}
+
+function orderStatusText(status) {
+  if (status === "pending_review") return "รอตรวจสลิป";
+  if (status === "payment_verified") return "ตรวจสลิปผ่าน";
+  if (status === "delivered") return "ส่งคีย์แล้ว";
+  if (status === "rejected") return "ไม่ผ่าน";
+  return status || "-";
+}
+
+function orderPill(row) {
+  return '<span class="pill ' + esc(row.status || "") + '">' + esc(orderStatusText(row.status)) + '</span>';
+}
+
+function orderDateBlock(row) {
+  return '<div class="detail">' +
+    'สร้าง: ' + esc(fmtTime(row.created_at)) + '<br>' +
+    'อัปสลิป: ' + esc(fmtTime(row.slip_uploaded_at)) + '<br>' +
+    'อนุมัติ: ' + esc(fmtTime(row.approved_at)) +
+    '</div>';
+}
+
+function orderCustomerBlock(row) {
+  const note = row.admin_note ? '<br><span class="detail">หมายเหตุ: ' + esc(row.admin_note) + '</span>' : "";
+  return '<div>' + esc(row.customer_ref || row.username || "-") +
+    '<br><span class="detail">บัญชี: ' + esc(row.username || "-") + '</span>' +
+    '<br><span class="detail">สลิป: ' + esc(row.slip_name || "-") + '</span>' +
+    note + '</div>';
+}
+
+function orderPlanBlock(row) {
+  return '<div><b>' + esc(row.plan_label || row.plan || "-") + '</b><br>' +
+    '<span class="detail">ยอด ' + esc(row.amount || 0) + ' บาท · ' + esc(row.max_seats || 1) + ' เครื่อง</span></div>';
+}
+
+function renderOrders() {
+  $("orderCountText").textContent = "ออเดอร์ล่าสุด " + allOrders.length + " รายการ";
+  if (!allOrders.length) {
+    $("ordersBody").innerHTML = '<tr><td class="emptyRow" colspan="7">ยังไม่มีออเดอร์จากลูกค้า</td></tr>';
+    return;
+  }
+  $("ordersBody").innerHTML = allOrders.map((r) => {
+    const keyHtml = r.key_code ? '<code>' + esc(r.key_code) + '</code>' : '<span class="detail">ยังไม่ได้ส่งคีย์</span>';
+    const actions = [
+      '<button class="mini secondary" data-slip="' + esc(r.id) + '">ดูสลิป</button>',
+    ];
+    if (["pending_review", "payment_verified"].includes(r.status)) {
+      actions.push('<button class="mini ok" data-approve="' + esc(r.id) + '">อนุมัติ</button>');
+      actions.push('<button class="mini danger" data-reject="' + esc(r.id) + '">ไม่ผ่าน</button>');
+    }
+    if (r.key_code) actions.push('<button class="mini ok" data-copy="' + esc(r.key_code) + '">คัดลอกคีย์</button>');
+    return '<tr>' +
+      '<td><b>' + esc(r.id) + '</b></td>' +
+      '<td>' + orderPill(r) + '</td>' +
+      '<td>' + orderPlanBlock(r) + '</td>' +
+      '<td>' + orderCustomerBlock(r) + '</td>' +
+      '<td>' + orderDateBlock(r) + '</td>' +
+      '<td class="keyCell">' + keyHtml + '</td>' +
+      '<td>' + actions.join(" ") + '</td>' +
+    '</tr>';
+  }).join("");
+}
+
+async function openOrderSlip(orderIdValue) {
+  const data = await api("/api/admin/shop-order-slip?order_id=" + encodeURIComponent(orderIdValue));
+  const order = data.order || {};
+  if (!order.slip_b64) throw new Error("ออเดอร์นี้ไม่มีไฟล์สลิป");
+  const mime = order.slip_mime || "image/jpeg";
+  const win = window.open("", "_blank");
+  if (!win) throw new Error("เปิดหน้าดูสลิปไม่สำเร็จ");
+  win.document.write('<!doctype html><title>' + esc(order.id) + '</title><body style="margin:0;background:#160e09;display:grid;place-items:center;min-height:100vh"><img style="max-width:100%;max-height:100vh" src="data:' + esc(mime) + ';base64,' + order.slip_b64 + '"></body>');
+  win.document.close();
+}
+
+async function postJson(path, body) {
+  return api(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+$("saveTokenBtn").onclick = async () => {
+  sessionStorage.setItem("jl_admin_token", token());
+  await refresh().catch((e) => setStatus(e.message, false));
+};
+$("clearTokenBtn").onclick = () => {
+  sessionStorage.removeItem("jl_admin_token");
+  $("adminToken").value = "";
+  setStatus("ล้าง Token แล้ว", true);
+};
+$("refreshBtn").onclick = () => refresh().catch((e) => setStatus(e.message, false));
+$("keySearch").oninput = renderKeys;
+$("statusFilter").onchange = renderKeys;
+$("planFilter").onchange = renderKeys;
+$("clearFilterBtn").onclick = () => {
+  $("keySearch").value = "";
+  $("statusFilter").value = "all";
+  $("planFilter").value = "all";
+  renderKeys();
+};
+
+$("ordersBody").onclick = async (ev) => {
+  const btn = ev.target.closest("button");
+  if (!btn) return;
+  const slipId = btn.getAttribute("data-slip");
+  const approveId = btn.getAttribute("data-approve");
+  const rejectId = btn.getAttribute("data-reject");
+  const copyKey = btn.getAttribute("data-copy");
+  if (slipId) {
+    await openOrderSlip(slipId).catch((e) => setStatus(e.message, false));
+    return;
+  }
+  if (approveId) {
+    const data = await postJson("/api/admin/shop-orders/approve", { order_id: approveId }).catch((e) => ({ error: e.message }));
+    if (data.error) return setStatus(data.error, false);
+    const copied = data.key && data.key.code ? await copyText(data.key.code).catch(() => false) : false;
+    await refresh();
+    setStatus("อนุมัติออเดอร์แล้ว: " + approveId + (data.key ? " · " + data.key.code : "") + (copied ? " · คัดลอกแล้ว" : ""), true);
+    return;
+  }
+  if (rejectId) {
+    const note = prompt("เหตุผลที่ไม่ผ่าน", "ตรวจสลิปไม่ผ่าน") || "";
+    const data = await postJson("/api/admin/shop-orders/reject", { order_id: rejectId, admin_note: note }).catch((e) => ({ error: e.message }));
+    if (data.error) return setStatus(data.error, false);
+    await refresh();
+    setStatus("ทำเครื่องหมายออเดอร์ไม่ผ่านแล้ว: " + rejectId, true);
+    return;
+  }
+  if (copyKey) {
+    const copied = await copyText(copyKey).catch(() => false);
+    setStatus((copied ? "คัดลอกคีย์แล้ว: " : "คัดลอกไม่สำเร็จ: ") + copyKey, copied);
+  }
+};
+
+$("mintBtn").onclick = async () => {
+  const body = Object.assign({
+    plan: $("mintPlan").value.trim(),
+    count: Number($("mintCount").value || 1),
+    max_seats: Number($("mintSeats").value || 1),
+    note: $("mintNote").value.trim(),
+  }, durationBody("mintDurationType", "mintDuration"));
+  const data = await postJson("/api/admin/mint", body).catch((e) => ({ error: e.message }));
+  if (data.error) return setStatus(data.error, false);
+  await refresh();
+  setStatus("สร้างคีย์แล้ว: " + data.codes.join(", "), true);
+};
+
+$("deliverBtn").onclick = async () => {
+  const body = Object.assign({
+    plan: $("deliverPlan").value.trim(),
+    max_seats: Number($("deliverSeats").value || 1),
+    order_id: $("deliverOrder").value.trim(),
+    customer_ref: $("deliverCustomer").value.trim(),
+  }, durationBody("deliverDurationType", "deliverDuration"));
+  const data = await postJson("/api/admin/deliver", body).catch((e) => ({ error: e.message }));
+  if (data.error) return setStatus(data.error, false);
+  fillExactForm(data.key);
+  const copied = await copyText(data.key.code).catch(() => false);
+  await refresh();
+  setStatus((data.reused ? "ออเดอร์นี้มีคีย์อยู่แล้ว: " : "ส่งคีย์แล้ว: ") + data.key.code + (copied ? " · คัดลอกแล้ว" : ""), true);
+};
+
+$("deliverExactBtn").onclick = async () => {
+  const data = await postJson("/api/admin/deliver-key", {
+    key: $("exactKey").value.trim(),
+    order_id: $("exactOrder").value.trim(),
+    customer_ref: $("exactCustomer").value.trim(),
+  }).catch((e) => ({ error: e.message }));
+  if (data.error) return setStatus(data.error, false);
+  fillExactForm(data.key);
+  const copied = await copyText(data.key.code).catch(() => false);
+  await refresh();
+  setStatus((data.reused ? "ออเดอร์นี้มีคีย์อยู่แล้ว: " : "ส่งคีย์แล้ว: ") + data.key.code + (copied ? " · คัดลอกแล้ว" : ""), true);
+};
+
+$("resetSeatBtn").onclick = async () => {
+  const key = $("exactKey").value.trim();
+  const data = await postJson("/api/admin/reset-seats", { key }).catch((e) => ({ error: e.message }));
+  if (data.error) return setStatus(data.error, false);
+  await refresh();
+  setStatus("ล้างเครื่องของคีย์แล้ว: " + key, true);
+};
+
+$("revokeBtn").onclick = async () => {
+  const key = $("exactKey").value.trim();
+  if (!confirm("ต้องการระงับคีย์ " + key + " ใช่ไหม?")) return;
+  const data = await postJson("/api/admin/revoke", { key }).catch((e) => ({ error: e.message }));
+  if (data.error) return setStatus(data.error, false);
+  await refresh();
+  setStatus("ระงับคีย์แล้ว: " + key, true);
+};
+
+$("keysBody").onclick = async (ev) => {
+  const btn = ev.target.closest("button");
+  if (!btn) return;
+  const copyKey = btn.getAttribute("data-copy");
+  const fillKey = btn.getAttribute("data-fill");
+  const resetKey = btn.getAttribute("data-reset");
+  const revokeKey = btn.getAttribute("data-revoke");
+  if (copyKey) {
+    fillExactForm(findKey(copyKey));
+    const copied = await copyText(copyKey).catch(() => false);
+    setStatus((copied ? "คัดลอกคีย์แล้ว: " : "เลือกคีย์แล้ว แต่คัดลอกไม่สำเร็จ: ") + copyKey, copied);
+    return;
+  }
+  if (fillKey) {
+    fillExactForm(findKey(fillKey));
+    setStatus("เลือกคีย์แล้ว: " + fillKey, true);
+    return;
+  }
+  if (resetKey) {
+    fillExactForm(findKey(resetKey));
+    const data = await postJson("/api/admin/reset-seats", { key: resetKey }).catch((e) => ({ error: e.message }));
+    if (data.error) return setStatus(data.error, false);
+    await refresh();
+    setStatus("ล้างเครื่องของคีย์แล้ว: " + resetKey, true);
+    return;
+  }
+  if (revokeKey) {
+    fillExactForm(findKey(revokeKey));
+    if (!confirm("ต้องการระงับคีย์ " + revokeKey + " ใช่ไหม?")) return;
+    const data = await postJson("/api/admin/revoke", { key: revokeKey }).catch((e) => ({ error: e.message }));
+    if (data.error) return setStatus(data.error, false);
+    await refresh();
+    setStatus("ระงับคีย์แล้ว: " + revokeKey, true);
+  }
+};
+
+$("freeBtn").onclick = async () => {
+  const plan = $("freePlan").value;
+  const max_seats = Number($("freeSeats").value || 1);
+  const note = $("freeNote").value.trim() || "Free Key";
+
+  const durationDaysMap = {
+    "1d": 1,
+    "7d": 7,
+    "30d": 30
+  };
+
+  const body = {
+    plan: plan,
+    duration_days: durationDaysMap[plan] || 7,
+    max_seats: max_seats,
+    note: note
+  };
+
+  $("freeResult").textContent = "กำลังสร้าง...";
+  const data = await postJson("/api/admin/generate-free-key", body).catch((e) => ({ error: e.message }));
+  if (data.error) {
+    $("freeResult").style.color = "var(--berry)";
+    $("freeResult").textContent = data.error;
+    return setStatus(data.error, false);
+  }
+
+  $("freeResult").style.color = "var(--gold)";
+  $("freeResult").textContent = "สร้างสำเร็จ: " + data.code;
+  const copied = await copyText(data.code).catch(() => false);
+  await refresh();
+  setStatus("สร้างคีย์ฟรีเรียบร้อย: " + data.code + (copied ? " (คัดลอกลงคลิปบอร์ดแล้ว)" : ""), true);
+};
+
+if (adminToken) refresh().catch((e) => setStatus(e.message, false));
+</script>
+</body>
+</html>`);
+}
+
+export default {
+  async fetch(req, env) {
+    const url = new URL(req.url);
+    if (req.method === "OPTIONS") return corsOk();
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/" && env.ASSETS) {
+      return env.ASSETS.fetch(req);
+    }
+    if (req.method === "GET" && url.pathname === "/health") {
+      return json({ ok: true, app: "jlcookie-license", mode: "stock-delivery" });
+    }
+    const adminPath = cleanText(env.ADMIN_PATH, "/admin");
+    if (req.method === "GET" && url.pathname === adminPath) return adminPage();
+    if (req.method === "GET" && (url.pathname === "/admin" || url.pathname === "/admin/") && adminPath !== "/admin") {
+      return json({ ok: false, msg: "ไม่พบเส้นทางนี้" }, 404);
+    }
+    if (req.method === "POST" && url.pathname === "/api/verify") return verify(req, env);
+    if (req.method === "GET" && url.pathname === "/api/shop/plans") return shopPlans(env);
+    if (req.method === "GET" && url.pathname === "/api/shop/activity") return shopActivity(env);
+    if (req.method === "POST" && url.pathname === "/api/auth/register") return registerUser(req, env);
+    if (req.method === "POST" && url.pathname === "/api/auth/login") return loginUser(req, env);
+    if (req.method === "GET" && url.pathname === "/api/me") return me(req, env);
+    if (req.method === "GET" && url.pathname === "/api/download-info") return downloadInfo(req, env);
+    if (req.method === "POST" && url.pathname === "/api/orders") return createOrder(req, env);
+    if (req.method === "GET" && url.pathname === "/api/orders") return myOrders(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/mint") return mint(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/deliver") return deliver(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/deliver-key") return deliverKey(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/generate-free-key") return generateFreeKey(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/revoke") return revoke(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/reset-seats") return resetSeats(req, env);
+    if (req.method === "GET" && url.pathname === "/api/admin/stock") return stock(req, env);
+    if (req.method === "GET" && url.pathname === "/api/admin/keys") return listKeys(req, env);
+    if (req.method === "GET" && url.pathname === "/api/admin/shop-orders") return listShopOrders(req, env);
+    if (req.method === "GET" && url.pathname === "/api/admin/shop-order-slip") return shopOrderSlip(req, env, url);
+    if (req.method === "POST" && url.pathname === "/api/admin/shop-orders/approve") return approveShopOrder(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/shop-orders/reject") return rejectShopOrder(req, env);
+    if ((req.method === "GET" || req.method === "HEAD") && env.ASSETS) return env.ASSETS.fetch(req);
+    return json({ ok: false, msg: "ไม่พบเส้นทางนี้" }, 404);
+  },
+};

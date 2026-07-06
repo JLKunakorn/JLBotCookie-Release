@@ -1,0 +1,34 @@
+# Local secrets / release config
+license_config.json
+license_server/cloudflare/admin.local.json
+*.local.json
+.env
+.env.*
+
+# Cloudflare / Wrangler local cache
+.wrangler/
+license_server/cloudflare/.wrangler/
+
+# Build output and staging
+build/
+dist/
+Build EXE/
+*.spec.bak
+
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Runtime logs / generated captures
+coin_logs/
+*.log
+result_FAIL_*.png
+
+# Reverse-engineering backups, do not ship or commit
+_pyc_to_decompile/
+*_Decompiled.py
+HOW_TO_pylingual.txt
+
+# Local mockups / drafts
+web_mockup/

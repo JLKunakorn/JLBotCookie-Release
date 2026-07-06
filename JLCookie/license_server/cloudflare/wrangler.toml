@@ -1,0 +1,14 @@
+name = "jlcookie-license"
+main = "worker.js"
+compatibility_date = "2026-07-05"
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jlcookie_license"
+database_id = "7f2e3beb-e10b-4643-b4b5-d6ad0ea1dabd"
