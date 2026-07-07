@@ -57,6 +57,45 @@ function cleanText(value, fallback = "") {
   return String(value || fallback).trim();
 }
 
+function fileNameFromUrl(value, fallback = "") {
+  const raw = cleanText(value);
+  if (!raw) return fallback;
+  try {
+    const parsed = new URL(raw);
+    const pathName = decodeURIComponent(parsed.pathname || "");
+    const name = pathName.split("/").filter(Boolean).pop();
+    return name || fallback;
+  } catch (_) {
+    const clean = raw.split(/[?#]/, 1)[0];
+    const name = clean.split("/").filter(Boolean).pop();
+    return name || fallback;
+  }
+}
+
+function zipUrlFromDownloadUrl(value) {
+  const raw = cleanText(value);
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    parsed.pathname = parsed.pathname.replace(/\.exe$/i, ".zip");
+    return parsed.toString();
+  } catch (_) {
+    return raw.replace(/\.exe($|[?#])/i, ".zip$1");
+  }
+}
+
+function releaseDownloadInfo(env) {
+  const downloadUrl = cleanText(env.DOWNLOAD_URL);
+  const zipUrl = cleanText(env.ZIP_URL) || zipUrlFromDownloadUrl(downloadUrl);
+  return {
+    version: env.APP_VERSION || "V1.0 Premium",
+    download_url: downloadUrl,
+    download_name: fileNameFromUrl(downloadUrl, "JLmain_Premium.exe"),
+    zip_url: zipUrl,
+    zip_name: fileNameFromUrl(zipUrl, "JLmain_Premium.zip"),
+  };
+}
+
 function cleanUsername(value) {
   return String(value || "").trim().replace(/[^\w.@-]/g, "").slice(0, 40);
 }
@@ -367,6 +406,7 @@ async function verify(req, env) {
   const code = cleanCode(body.key);
   const hwid = cleanText(body.hwid);
   const now = Math.floor(Date.now() / 1000);
+  const releaseInfo = releaseDownloadInfo(env);
   const deny = (msg) => signPayload(env, { ok: false, msg, hwid, iat: now });
 
   if (!code || !hwid) return deny("ข้อมูลคีย์/HWID ไม่ครบ");
@@ -417,8 +457,11 @@ async function verify(req, env) {
     hwid,
     iat: now,
     token_exp: now + 6 * 3600,
-    app_version: env.APP_VERSION || "V1.0 Premium",
-    download_url: env.DOWNLOAD_URL || "",
+    app_version: releaseInfo.version,
+    download_url: releaseInfo.download_url,
+    download_name: releaseInfo.download_name,
+    zip_url: releaseInfo.zip_url,
+    zip_name: releaseInfo.zip_name,
   });
 }
 
@@ -732,6 +775,7 @@ async function myOrders(req, env) {
 async function downloadInfo(req, env) {
   const user = await requireUser(req, env);
   if (!user) return authRequired();
+  const releaseInfo = releaseDownloadInfo(env);
   const row = await env.DB.prepare(
     `SELECT shop_orders.*, shop_users.username
      FROM shop_orders
@@ -743,8 +787,11 @@ async function downloadInfo(req, env) {
   if (!row) return json({ ok: false, msg: "ยังไม่มีออเดอร์ที่อนุมัติแล้ว" }, 403);
   return json({
     ok: true,
-    version: env.APP_VERSION || "V1.0 Premium",
-    download_url: env.DOWNLOAD_URL || "",
+    version: releaseInfo.version,
+    download_url: releaseInfo.download_url,
+    download_name: releaseInfo.download_name,
+    zip_url: releaseInfo.zip_url,
+    zip_name: releaseInfo.zip_name,
     order: shopOrderReply(row),
   });
 }

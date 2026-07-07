@@ -30,7 +30,6 @@
       "description": "บอทเกมคุกกี้รันสำหรับ Cookie Run Classic ช่วยฟาร์มเหรียญ วิ่ง กระโดด สไลด์ และต่อชีพอัตโนมัติผ่าน Emulator",
       "url": "https://jlcookie-license.aura-secretary.workers.dev/",
       "image": "https://jlcookie-license.aura-secretary.workers.dev/assets/app_icon.png",
-      "softwareVersion": "1.0.1",
       "offers": {
         "@type": "AggregateOffer",
         "priceCurrency": "THB",
@@ -1653,7 +1652,6 @@
   <script>
     const SESSION_KEY = "jl_bot_cookie_session";
     const API_BASE = window.JL_API_BASE || (location.protocol === "file:" ? "https://jlcookie-license.aura-secretary.workers.dev" : "");
-    const fileName = "JLmain_V1.0.1_Premium.exe";
     const seededActivity = [];
     const planData = {
       "1 วัน": { code: "1d", price: 10, duration: "24 ชั่วโมง", days: 1 },
@@ -1740,6 +1738,31 @@
 
     function esc(value) {
       return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    function fileNameFromUrl(value, fallback = "") {
+      const raw = String(value || "").trim();
+      if (!raw) return fallback;
+      try {
+        const parsed = new URL(raw, location.href);
+        const name = decodeURIComponent(parsed.pathname).split("/").filter(Boolean).pop();
+        return name || fallback;
+      } catch (error) {
+        const clean = raw.split(/[?#]/, 1)[0];
+        return clean.split("/").filter(Boolean).pop() || fallback;
+      }
+    }
+
+    function zipUrlFromDownloadUrl(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      try {
+        const parsed = new URL(raw, location.href);
+        parsed.pathname = parsed.pathname.replace(/\.exe$/i, ".zip");
+        return parsed.toString();
+      } catch (error) {
+        return raw.replace(/\.exe($|[?#])/i, ".zip$1");
+      }
     }
 
     function setInlineMessage(node, text, color) {
@@ -2137,22 +2160,22 @@
         return;
       }
       const downloadUrl = downloadInfo && downloadInfo.download_url ? downloadInfo.download_url : "";
-      let zipUrl = "";
-      if (downloadUrl.endsWith(".exe")) {
-        zipUrl = downloadUrl.substring(0, downloadUrl.length - 4) + ".zip";
-      }
+      const zipUrl = downloadInfo && downloadInfo.zip_url ? downloadInfo.zip_url : zipUrlFromDownloadUrl(downloadUrl);
+      const exeName = downloadInfo && downloadInfo.download_name ? downloadInfo.download_name : fileNameFromUrl(downloadUrl, "JLmain_Premium.exe");
+      const zipName = downloadInfo && downloadInfo.zip_name ? downloadInfo.zip_name : fileNameFromUrl(zipUrl, "JLmain_Premium.zip");
+      const versionText = downloadInfo && downloadInfo.version ? downloadInfo.version : "";
       downloadContainer.innerHTML = `
         <div class="download-card" style="display: flex; flex-direction: column; gap: 16px; align-items: flex-start; padding: 24px;">
           <div style="display: flex; align-items: center; gap: 16px; width: 100%;">
             <img src="assets/app_icon.png" alt="JL Bot Cookie icon" style="width: 56px; height: 56px;">
             <div>
-              <h2 style="margin: 0; font-size: 18px;">${esc(fileName)}</h2>
-              <p style="margin: 4px 0 0; opacity: 0.7; font-size: 13px;">ไฟล์โปรแกรม Windows เวอร์ชันล่าสุด V1.0.1</p>
+              <h2 style="margin: 0; font-size: 18px;">${esc(exeName)}</h2>
+              <p style="margin: 4px 0 0; opacity: 0.7; font-size: 13px;">ไฟล์โปรแกรม Windows${versionText ? ` ${esc(versionText)}` : ""}</p>
             </div>
           </div>
           <div style="display: flex; gap: 12px; width: 100%; margin-top: 8px;">
-            ${downloadUrl ? `<a class="btn green" href="${esc(downloadUrl)}" download style="flex: 1; text-align: center; justify-content: center; padding: 12px 18px;">ดาวน์โหลด (.EXE)</a>` : `<span class="pill amber">รอเพิ่มลิงก์ดาวน์โหลด</span>`}
-            ${zipUrl ? `<a class="btn" href="${esc(zipUrl)}" download style="flex: 1; text-align: center; justify-content: center; padding: 12px 18px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border);">ดาวน์โหลด (.ZIP)</a>` : ""}
+            ${downloadUrl ? `<a class="btn green" href="${esc(downloadUrl)}" download="${esc(exeName)}" style="flex: 1; text-align: center; justify-content: center; padding: 12px 18px;">ดาวน์โหลด (.EXE)</a>` : `<span class="pill amber">รอเพิ่มลิงก์ดาวน์โหลด</span>`}
+            ${zipUrl ? `<a class="btn" href="${esc(zipUrl)}" download="${esc(zipName)}" style="flex: 1; text-align: center; justify-content: center; padding: 12px 18px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border);">ดาวน์โหลด (.ZIP)</a>` : ""}
           </div>
         </div>
       `;
