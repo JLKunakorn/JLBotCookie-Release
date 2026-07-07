@@ -195,6 +195,8 @@ def _info_from_payload(payload: dict) -> dict:
         "name": payload.get("name") or payload.get("plan") or "online-license",
         "plan": payload.get("plan") or "",
         "token_exp": payload.get("token_exp"),
+        "app_version": payload.get("app_version") or "",
+        "download_url": payload.get("download_url") or "",
     }
 
 
