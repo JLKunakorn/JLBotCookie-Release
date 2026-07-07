@@ -2,6 +2,7 @@
 import datetime
 import os
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -14,7 +15,8 @@ import license_core
 
 
 APP_NAME = "JLmain"
-APP_DISPLAY_VERSION = "V1.0.1 Premium"
+APP_DISPLAY_VERSION = "V1.0.2 Premium"
+RELEASE_MODE = bool(getattr(sys, "frozen", False))
 
 BG = "#2B1D14"
 CARD = "#3A2A1E"
@@ -62,6 +64,7 @@ class JLMainApp:
 
         bot.LOG_CALLBACK = self._enqueue_bot_log
         bot.COIN_CALLBACK = lambda c, t: self.root.after(0, self._update_coins, c, t)
+        bot.CAPTCHA_CALLBACK = lambda cnt: self.root.after(0, self._update_captcha, cnt)
 
         self._build_ui()
         self._fit_window()
@@ -389,9 +392,9 @@ class JLMainApp:
                     target_exe_path = os.path.abspath(current_exe)
                 else:
                     exe_dir = os.path.dirname(os.path.abspath(__file__))
-                    target_exe_path = os.path.join(exe_dir, "JLmain_V1.0_Premium.exe")
+                    target_exe_path = os.path.join(exe_dir, "JLmain_V1.0.2_Premium.exe")
                 
-                final_exe_name = "JLmain_V1.0_Premium.exe"
+                final_exe_name = "JLmain_V1.0.2_Premium.exe"
                 final_exe_path = os.path.join(exe_dir, final_exe_name)
                 temp_exe_path = os.path.join(exe_dir, "update_temp.exe")
                 updater_bat_path = os.path.join(exe_dir, "updater.bat")
@@ -747,7 +750,8 @@ del "%~f0"
         )
         boost_row = ctk.CTkFrame(boosts, fg_color=CARD_DARK)
         boost_row.pack(fill="x", padx=14, pady=(0, 10))
-        for key, label in [("boost_potion", "Potion"), ("boost_stopwatch", "Stopwatch"), ("boost_star", "Star x2")]:
+        boost_row.grid_columnconfigure((0, 1), weight=1)
+        for i, (key, label) in enumerate([("boost_potion", "Potion"), ("boost_stopwatch", "Stopwatch"), ("boost_star", "Star x2")]):
             var = tk.BooleanVar(value=bool(bot.SETTINGS.get(key, True)))
             self.opt_vars[key] = var
             ctk.CTkSwitch(
@@ -760,7 +764,7 @@ del "%~f0"
                 fg_color=LINE,
                 text_color=TEXT,
                 font=("Segoe UI", 12, "bold"),
-            ).pack(side="left", padx=(0, 18))
+            ).grid(row=i // 2, column=i % 2, sticky="w", padx=4, pady=6)
 
         ctk.CTkLabel(boosts, text="Target Boost", text_color=GOLD, font=("Segoe UI", 13, "bold")).pack(
             anchor="w", padx=14, pady=(0, 4)
@@ -1010,6 +1014,15 @@ del "%~f0"
             font=("Segoe UI", 15, "bold"),
         ).pack(padx=14, pady=10)
 
+        self.captcha_var = tk.StringVar(value="พบแคปช่าทั้งหมด: 0 ครั้ง")
+        self.captcha_lbl = ctk.CTkLabel(
+            card,
+            textvariable=self.captcha_var,
+            text_color=GOLD,
+            font=("Segoe UI", 13, "bold"),
+        )
+        self.captcha_lbl.pack(anchor="w", padx=18, pady=(0, 10))
+
         ctk.CTkLabel(card, text="Activity", text_color=GOLD, font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=18)
         self.log = ctk.CTkTextbox(
             card,
@@ -1157,6 +1170,8 @@ del "%~f0"
         self.status_var.set("Running")
         self.status_lbl.configure(text_color=MINT)
         self.coins_var.set("Coin: -    Total: 0")
+        bot.CAPTCHA_COUNT = 0
+        self.captcha_var.set("พบแคปช่าทั้งหมด: 0 ครั้ง")
         if max_loops:
             self._log(f"[app] Run started: {max_loops} loop(s)\n")
         else:
@@ -1182,9 +1197,11 @@ del "%~f0"
                     return
                 bot.run_state_machine(max_loops, on_loop_done=self._on_loop_done)
             except Exception as exc:
-                import traceback
-
-                self._log(f"[app] บอทหยุดเพราะข้อผิดพลาด: {exc}\n{traceback.format_exc()}\n")
+                if RELEASE_MODE:
+                    self._log("[app] บอทหยุดเพราะข้อผิดพลาด กรุณาตรวจอีมูเลเตอร์และลองใหม่\n")
+                else:
+                    import traceback
+                    self._log(f"[app] บอทหยุดเพราะข้อผิดพลาด: {exc}\n{traceback.format_exc()}\n")
             finally:
                 try:
                     self.root.after(0, self._on_bot_stopped)
@@ -1219,6 +1236,9 @@ del "%~f0"
         last = f"{coins:,}" if coins is not None else "N/A"
         self.coins_var.set(f"Coin: {last}    Total: {total:,}")
 
+    def _update_captcha(self, cnt):
+        self.captcha_var.set(f"พบแคปช่าทั้งหมด: {cnt} ครั้ง")
+
     def stop_bot(self):
         bot.STOP_FLAG.set()
         self.status_var.set("Stopping...")
@@ -1241,9 +1261,30 @@ del "%~f0"
     def _enqueue_bot_log(self, message):
         for line in str(message).splitlines():
             line = line.strip()
+            if RELEASE_MODE and self._is_internal_log_line(line):
+                continue
             if not line or not self._should_show_bot_log(line):
                 continue
             self.log_queue.put(self._friendly_bot_log(line) + "\n")
+
+    def _is_internal_log_line(self, line):
+        lower = line.lower()
+        internal = (
+            "traceback",
+            'file "',
+            "line ",
+            "cv2.",
+            "numpy",
+            "subprocess",
+            "c:\\",
+            "adb.exe",
+            "score=",
+            "confidence=",
+            "ความมั่นใจ=",
+            "คะแนน",
+            "พิกัด",
+        )
+        return any(token in lower for token in internal)
 
     def _should_show_bot_log(self, line):
         raw = line.strip()
@@ -1283,6 +1324,10 @@ del "%~f0"
         return raw
 
     def _log(self, text):
+        if RELEASE_MODE:
+            text = str(text)
+            if "Traceback" in text or 'File "' in text:
+                text = "[app] เกิดข้อผิดพลาด กรุณาลองใหม่\n"
         self.log_queue.put(text)
 
     def _configure_log_tags(self):

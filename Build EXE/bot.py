@@ -343,7 +343,12 @@ MAIL_CONFIRM_MAX = 320
 MAIL_PROGRESS_BOX = (400, 255, 880, 320)
 MAIL_PROGRESS_MIN = 6.0
 MAIL_BADGE_OFFSET = (10, -52, 72, -8)
-MAIL_ICON_THRESHOLD = 0.85
+MAIL_ICON_THRESHOLD = 0.75
+
+CAPTCHA_COUNT = 0
+CAPTCHA_CALLBACK = None
+CAPTCHA_CHECK_ENABLED = True
+LAST_CAPTCHA_CHECK_TIME = 0.0
 
 # --- RELIC CONFIGS ---
 IMG_RELIC_GET = 'templates/relic_get.png'
@@ -371,7 +376,7 @@ CHECK_THRESHOLD = 0.75
 DELAY_AFTER_REROLL = 2.0
 DELAY_AFTER_PLAY = 3.0
 LOOP_SLEEP = 0.3
-RESULT_CHECK_INTERVAL = 0.5
+RESULT_CHECK_INTERVAL = 0.2
 RUN_STATE_TIMEOUT = 600.0
 BTN_INACTIVE_CONFIRM = (640, 490)
 FREEZE_SECS = 8.0
@@ -546,7 +551,123 @@ def auto_select_device():
     print('[adb] ❌ ทุกจอถูกหน้าต่างอื่นใช้หมดแล้ว — เปิดอีมูฯ เพิ่ม หรือปิดหน้าต่างที่ไม่ใช้')
     return False
 
-def adb_screencap():
+_IN_CAPTCHA_SOLVER = False
+
+def check_and_solve_captcha_on_screen(screen):
+    global _IN_CAPTCHA_SOLVER
+    tpl_path = 'templates/captcha_title.png'
+    if not os.path.exists(tpl_path):
+        return False
+        
+    tpl = cv2.imread(tpl_path)
+    res = cv2.matchTemplate(screen, tpl, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(res)
+    
+    if max_val < 0.70:
+        return False
+        
+    _IN_CAPTCHA_SOLVER = True
+    print(f'[ระบบแคปช่า] 🚨 ตรวจพบระบบแคปช่าบนจอ {ADB_DEVICE}! (คะแนนตรวจพบ = {max_val:.4f}) -> เริ่มแก้ไขอัตโนมัติ...')
+    
+    try:
+        user_cards = [
+            (351, 186, 170, 220), # Card 1
+            (547, 186, 170, 220), # Card 2
+            (746, 186, 170, 220), # Card 3
+            (350, 440, 170, 220), # Card 4
+            (550, 440, 170, 220), # Card 5
+            (750, 440, 170, 220)  # Card 6
+        ]
+        
+        round_idx = 1
+        current_screen = screen
+        
+        while True:
+            gray = cv2.cvtColor(current_screen, cv2.COLOR_BGR2GRAY)
+            cookie_masks = []
+            for idx, (bx, by, bw, bh) in enumerate(user_cards):
+                pad_x = int(bw * 0.1)
+                pad_y = int(bh * 0.1)
+                card_crop = gray[by + pad_y : by + bh - pad_y, bx + pad_x : bx + bw - pad_x]
+                
+                _, cookie_mask = cv2.threshold(card_crop, 220, 255, cv2.THRESH_BINARY_INV)
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+                cookie_mask = cv2.morphologyEx(cookie_mask, cv2.MORPH_OPEN, kernel)
+                
+                cookie_cnts, _ = cv2.findContours(cookie_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if len(cookie_cnts) > 0:
+                    cx0 = min(cv2.boundingRect(cc)[0] for cc in cookie_cnts)
+                    cy0 = min(cv2.boundingRect(cc)[1] for cc in cookie_cnts)
+                    cx1 = max(cv2.boundingRect(cc)[0] + cv2.boundingRect(cc)[2] for cc in cookie_cnts)
+                    cy1 = max(cv2.boundingRect(cc)[1] + cv2.boundingRect(cc)[3] for cc in cookie_cnts)
+                    
+                    cookie_box = cookie_mask[cy0:cy1, cx0:cx1]
+                    cookie_resized = cv2.resize(cookie_box, (64, 64))
+                else:
+                    cookie_resized = np.zeros((64, 64), dtype=np.uint8)
+                    
+                cookie_masks.append(cookie_resized)
+                
+            dist_matrix = np.zeros((6, 6))
+            for i in range(6):
+                for j in range(6):
+                    if i == j:
+                        dist_matrix[i, j] = 0.0
+                    else:
+                        mse = np.mean((cookie_masks[i].astype(float) - cookie_masks[j].astype(float)) ** 2)
+                        dist_matrix[i, j] = mse
+                        
+            distance_sums = np.sum(dist_matrix, axis=1)
+            sorted_indices = np.argsort(distance_sums)[::-1]
+            minority_indices = sorted_indices[:2]
+            
+            print(f'[ระบบแคปช่า] 🎯 ด่านที่ {round_idx} -> พบกลุ่มแปลกแยกคือ การ์ดใบที่ {minority_indices[0]+1} และ การ์ดใบที่ {minority_indices[1]+1}')
+            
+            for card_idx in minority_indices:
+                bx, by, bw, bh = user_cards[card_idx]
+                click_x = bx + bw // 2
+                click_y = by + bh // 2
+                adb_tap(click_x, click_y)
+                human_sleep(1.0)
+                
+            human_sleep(2.5)
+            
+            next_screen = adb_screencap(check_captcha=False)
+            if next_screen is None:
+                break
+                
+            res = cv2.matchTemplate(next_screen, tpl, cv2.TM_CCOEFF_NORMED)
+            _, score, _, _ = cv2.minMaxLoc(res)
+            
+            if score < 0.70:
+                print(f'[ระบบแคปช่า] ✅ แก้ไขสำเร็จ แคปช่าหายไปแล้ว (คะแนนเหลือ = {score:.4f})')
+                # เพิ่มสถิติจำนวนครั้งที่เจอและแก้ไขแคปช่าสำเร็จ
+                global CAPTCHA_COUNT, CAPTCHA_CALLBACK
+                CAPTCHA_COUNT += 1
+                if CAPTCHA_CALLBACK is not None:
+                    try:
+                        CAPTCHA_CALLBACK(CAPTCHA_COUNT)
+                    except Exception:
+                        pass
+                break
+                
+            current_screen = next_screen
+            round_idx += 1
+            if round_idx > 4:
+                print('[ระบบแคปช่า] ⚠️ แก้ไขไป 4 รอบแล้วยังไม่หาย -> ออกจากลูปเพื่อความปลอดภัย')
+                break
+                
+    except Exception as e:
+        print(f'[ระบบแคปช่า] ❌ เกิดข้อผิดพลาดขณะแก้แคปช่า: {e}')
+        if not getattr(sys, 'frozen', False):
+            print(traceback.format_exc())
+    finally:
+        _IN_CAPTCHA_SOLVER = False
+        
+    return True
+
+def adb_screencap(check_captcha=True):
+    global _IN_CAPTCHA_SOLVER, LAST_CAPTCHA_CHECK_TIME
     cmd = _adb_base() + ['exec-out', 'screencap', '-p']
     try:
         result = _run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
@@ -555,6 +676,22 @@ def adb_screencap():
             return None
         img_array = np.frombuffer(result.stdout, dtype=np.uint8)
         screen = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        
+        if check_captcha and not _IN_CAPTCHA_SOLVER and screen is not None:
+            now = time.time()
+            should_check = False
+            if CAPTCHA_CHECK_ENABLED:
+                should_check = True
+            else:
+                # เช็คหน่วงเวลาช่วงเล่นเกมจริงทุกๆ 3.5 วินาทีต่อครั้ง
+                if now - LAST_CAPTCHA_CHECK_TIME >= 3.5:
+                    should_check = True
+                    
+            if should_check:
+                LAST_CAPTCHA_CHECK_TIME = now
+                if check_and_solve_captcha_on_screen(screen):
+                    return adb_screencap(check_captcha=False)
+                
         return screen
     except subprocess.TimeoutExpired:
         print('[ERR] ADB screencap timeout')
@@ -563,12 +700,19 @@ def adb_screencap():
         print(f'[ERR] adb_screencap: {e}')
         return None
 
+def human_sleep(base_seconds):
+    """นอนหลับสุ่มช่วงเวลาสั้นๆ +/- 15% - 20% เพื่อเลียนแบบพฤติกรรมมนุษย์และหลบหลีกการตรวจจับ"""
+    variation = base_seconds * random.uniform(-0.15, 0.20)
+    time.sleep(max(0.05, base_seconds + variation))
+
 def adb_tap(x, y, jitter=None):
     j = TAP_JITTER if jitter is None else jitter
     if j and j > 0:
         x = min(1279, max(0, int(x) + random.randint(-j, j)))
         y = min(719, max(0, int(y) + random.randint(-j, j)))
-    _run(_adb_base() + ['shell', 'input', 'tap', str(int(x)), str(int(y))])
+    # เลียนแบบการแตะของมนุษย์ (Dwell Time) ด้วยการ swipe สั้นๆ ที่พิกัดเดิม หน่วงเวลา 70-140ms
+    dwell_time = random.randint(70, 140)
+    _run(_adb_base() + ['shell', 'input', 'swipe', str(int(x)), str(int(y)), str(int(x)), str(int(y)), str(dwell_time)])
 
 def adb_hold(x, y, duration_sec):
     ms = int(duration_sec * 1000)
@@ -583,7 +727,9 @@ def adb_slide(jitter=None):
     if j and j > 0:
         x = min(1279, max(0, x + random.randint(-j, j)))
         y = min(719, max(0, y + random.randint(-j, j)))
-    adb_hold(x, y, SLIDE_HOLD_SEC)
+    # เพิ่มการสุ่มระยะเวลากดปุ่มสไลด์เล็กน้อย
+    duration = SLIDE_HOLD_SEC + random.uniform(-0.04, 0.05)
+    adb_hold(x, y, duration)
 
 def _jump_point():
     x1, y1, x2, y2 = JUMP_ZONE
@@ -774,7 +920,8 @@ def read_mail_badge(screen):
         return None
     mf, mp, _ = _find_optional(screen, IMG_MAILICON, MAIL_ICON_THRESHOLD)
     if not mf:
-        return None
+        # พิกัดไอคอนจดหมายมาตรฐานบนหน้าจอ 1280x720 เผื่อค้นหาเทมเพลตไม่พบ
+        mp = (675, 678)
     dx1, dy1, dx2, dy2 = MAIL_BADGE_OFFSET
     x0, y0 = (mp[0] + dx1, mp[1] + dy1)
     x1, y1 = (mp[0] + dx2, mp[1] + dy2)
@@ -1087,13 +1234,13 @@ def dismiss_unknown_popup(screen, allow_fallback=False):
     if xf:
         print(f'[ระบบนำทาง] ตรวจพบป๊อปอัปโฆษณาแทรกซ้อน -> ทำการปิดที่พิกัด {xp} (ความมั่นใจ={xsc:.2f})')
         adb_tap(*xp)
-        time.sleep(0.9)
+        human_sleep(0.9)
         return True
     if allow_fallback:
         for fx, fy in GENERIC_CLOSE_FALLBACK:
             print(f'[ระบบนำทาง] หน้าจอไม่ตอบสนองชั่วคราว -> พยายามกดตำแหน่งฉุกเฉิน ({fx},{fy})')
             adb_tap(fx, fy)
-            time.sleep(0.6)
+            human_sleep(0.6)
         return True
     return False
 
@@ -1112,10 +1259,10 @@ def ensure_on_boost_screen(max_tries=15):
                     print(f"[ระบบนำทาง] ตรวจพบป๊อปอัป {pop['name']} (ความมั่นใจ={psc:.2f}) -> กดปิดที่พิกัด {pop['x']}")
                     adb_tap(*pop['x'])
                     x_close_tries += 1
-                    time.sleep(0.9)
+                    human_sleep(0.9)
                 else:
                     print(f"[ระบบนำทาง] ไม่สามารถปิดหน้าต่าง {pop['name']} ได้หลังลองหลายครั้ง -> ยุติเพื่อความปลอดภัย")
-                    time.sleep(0.8)
+                    human_sleep(0.8)
                 dismissed = True
                 break
         if dismissed:
@@ -1136,7 +1283,7 @@ def ensure_on_boost_screen(max_tries=15):
                         adb_tap(*BTN_PITLIFT_NO)
                     else:
                         print(f'[ระบบนำทาง] ตรวจพบกล่องชุบชีวิตเสียคริสตัล (Pit Lift) -> รอระบบปฏิเสธเอง')
-                    time.sleep(1.2)
+                    human_sleep(1.2)
                     continue
             dismissed_confirm = False
             for cp in CONFIRM_POPUPS:
@@ -1144,7 +1291,7 @@ def ensure_on_boost_screen(max_tries=15):
                 if cf:
                     print(f"[ระบบนำทาง] ตรวจพบหน้าต่าง {cp['name']} -> กดยืนยันป๊อปอัปที่พิกัด {cp['btn']}")
                     adb_tap(*cp['btn'])
-                    time.sleep(1.2)
+                    human_sleep(1.2)
                     dismissed_confirm = True
                     break
             if dismissed_confirm:
@@ -1163,7 +1310,7 @@ def ensure_on_boost_screen(max_tries=15):
             if okf:
                 print('[ระบบนำทาง] ค้างอยู่ที่หน้าต่างสรุปคะแนน -> กด OK')
                 adb_tap(*okp)
-                time.sleep(2.5)
+                human_sleep(2.5)
             else:
                 if lf:
                     if side_budget > 0 and _lobby_side_tasks(screen):
@@ -1171,20 +1318,20 @@ def ensure_on_boost_screen(max_tries=15):
                         continue
                     print(f'[ระบบนำทาง] หน้าจอหลักเรียบร้อยดี (ครั้งที่ {i + 1}) -> กดเริ่มเกมเพื่อเข้าหน้าเตรียมวิ่ง')
                     adb_tap(*lp)
-                    time.sleep(DELAY_AFTER_PLAY)
+                    human_sleep(DELAY_AFTER_PLAY)
                 else:
                     if not dismiss_unknown_popup(screen):
                         gpos = _find_green_confirm(screen)
                         if gpos:
                             print(f'[ระบบนำทาง] ตรวจพบปุ่มสีเขียวยืนยันกลางหน้าจอที่พิกัด {gpos} -> กดเคลียร์หน้าจอ')
                             adb_tap(*gpos)
-                            time.sleep(1.2)
+                            human_sleep(1.2)
                         else:
                             print(f'[ระบบนำทาง] มีหน้าต่างอื่นบดบังอยู่ -> พยายามกดยืนยันจุดเคลียร์หน้าจอ 2 จุด')
                             adb_tap(*BTN_POPUP_CONFIRM)
-                            time.sleep(0.4)
+                            human_sleep(0.4)
                             adb_tap(*BTN_POPUP_CONFIRM_LOW)
-                            time.sleep(1.2)
+                            human_sleep(1.2)
                             if i >= max_tries - 3:
                                 dismiss_unknown_popup(screen, allow_fallback=True)
     print('[ระบบนำทาง] ⚠️ ไม่สามารถเข้าสู่หน้าเตรียมตัวได้ในเวลาที่กำหนด')
@@ -1193,10 +1340,10 @@ def ensure_on_boost_screen(max_tries=15):
 def multibuy_until_target():
     print('[reroll] เลือกกล่อง Random Boost ก่อน')
     adb_tap(*BTN_BOX)
-    time.sleep(0.8)
+    human_sleep(0.8)
     print('[reroll] เปิดหน้า Multi (เลือกบูสต์ที่ต้องการ)')
     adb_tap(*BTN_MULTI)
-    time.sleep(1.0)
+    human_sleep(1.0)
     if not any((SETTINGS.get('multi_' + b['key'], b['default']) for b in MULTI_BOOSTS)):
         SETTINGS['multi_double_coins'] = True
         print('[reroll] ไม่ได้เลือกบูสต์ Multi-Buy เลย -> ใช้ Double Coins เป็นค่าเริ่มต้น')
@@ -1210,7 +1357,7 @@ def multibuy_until_target():
         action = 'กดติ๊ก' if want else 'กดเอาออก'
         print(f"    [{b['name']}] {action}")
         adb_tap(cx, cy)
-        time.sleep(0.4)
+        human_sleep(0.4)
     print('[reroll] กด Multi-Buy -> ให้เกมสุ่มซื้อเองจนได้บูสต์ที่เลือก')
     adb_tap(*BTN_MULTI_BUY)
     start = time.time()
@@ -1226,7 +1373,7 @@ def multibuy_until_target():
             continue
         if saw_rolling:
             print('[reroll] สุ่มบูสต์เสร็จแล้ว (ปุ่ม Stop หาย)')
-            time.sleep(0.8)
+            human_sleep(0.8)
             return True
         if find_template(screen, IMG_TARGET_ITEM)[0]:
             print('[reroll] ได้ Double Coins แล้ว')
@@ -1236,7 +1383,7 @@ def multibuy_until_target():
             return True
     print('[reroll] หมดเวลา Multi-Buy -> ปิดหน้า Multi')
     adb_tap(*BTN_MULTI_CLOSE)
-    time.sleep(1.0)
+    human_sleep(1.0)
     return False
 
 # --- STATE MACHINE CONTROLS ---
@@ -1245,7 +1392,7 @@ def state_reroll():
     print('\n===== [STATE 1] REROLL — Multi-Buy สุ่มบูสต์ที่เลือก =====')
     if not ensure_on_boost_screen():
         print('[WARN] นำทางยังไม่สำเร็จ -> รอแล้ววนลองใหม่ (ไม่หยุดบอท)')
-        time.sleep(3)
+        human_sleep(3.0)
         return State.REROLL
     screen = adb_screencap()
     found, _, score = find_template(screen, IMG_TARGET_ITEM)
@@ -1260,7 +1407,7 @@ def state_reroll():
     ensure_boosts_selected()
     print('[OK] -> กด Play เริ่มวิ่ง')
     adb_tap(*BTN_PLAY)
-    time.sleep(DELAY_AFTER_PLAY)
+    human_sleep(DELAY_AFTER_PLAY)
     return State.RUN
 
 def _pattern_path():
@@ -1293,6 +1440,8 @@ def _frame_signature(screen):
     return cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32)
 
 def state_run():
+    global CAPTCHA_CHECK_ENABLED
+    CAPTCHA_CHECK_ENABLED = False
     pattern = REPLAY_PATTERN
     jump_stop = threading.Event()
     jump_count = [0]
@@ -1353,7 +1502,7 @@ def state_run():
                     if time.time() - last_change >= FREEZE_SECS:
                         print('[recover] หน้าจอค้าง/ป๊อปอัป (inactive?) -> กด Confirm กลางจอเพื่อวิ่งต่อ')
                         adb_tap(*BTN_INACTIVE_CONFIRM)
-                        time.sleep(1.2)
+                        human_sleep(1.2)
                         last_sig = None
                         last_change = time.time()
                         continue
@@ -1365,14 +1514,14 @@ def state_run():
                 if fs:
                     print(f'    [faststart] เจอปุ่มวิ่งบูส Fast Start (score={fssc:.3f}) -> กดใช้')
                     adb_tap(*BTN_FASTSTART)
-                    time.sleep(0.5)
+                    human_sleep(0.5)
                     continue
             found_relay, rpos, rscore = find_template(screen, IMG_RELAY, RELAY_THRESHOLD)
             if found_relay:
                 if SETTINGS['use_relay']:
                     print(f'    [relay] เจอนินจา (score={rscore:.3f}) -> กดวิ่งต่อ')
                     adb_tap(*BTN_RELAY)
-                    time.sleep(0.5)
+                    human_sleep(0.5)
                     continue
                 else:
                     print(f'    [relay] เจอนินจา (score={rscore:.3f}) แต่ปิดใช้นินจาไว้ -> ปล่อยจบรอบ')
@@ -1386,6 +1535,7 @@ def state_run():
             time.sleep(RESULT_CHECK_INTERVAL)
     finally:
         jump_stop.set()
+        CAPTCHA_CHECK_ENABLED = True
 
 COIN_LOG_ROI = (945, 383, 1118, 430)
 COIN_TOTAL = 0
@@ -1458,10 +1608,10 @@ def state_result():
         found, pos, score = find_template(screen, IMG_OK_BUTTON)
         if found:
             record_result_coins(screen)
-            time.sleep(1.5)
+            human_sleep(1.5)
             print(f'[OK] เจอปุ่ม OK (score={score:.3f}) -> กดกลับล็อบบี้')
             adb_tap(*pos)
-            time.sleep(2.5)
+            human_sleep(2.5)
             return State.REROLL
         attempts += 1
         if attempts >= MAX_ATTEMPTS:
@@ -1504,11 +1654,12 @@ def run_state_machine(max_loops=0, on_loop_done=None):
             except Exception as e:
                 err_streak += 1
                 print(f'[ERR] ข้อผิดพลาดใน {prev} (ครั้งที่ {err_streak}) -> ข้ามแล้วลองใหม่: {e}')
-                print(traceback.format_exc())
+                if not getattr(sys, 'frozen', False):
+                    print(traceback.format_exc())
                 if err_streak >= 30:
                     print('[FATAL] ผิดพลาดติดกันเยอะมาก -> หยุด (เช็ก LDPlayer/ADB ว่ายังเปิดอยู่ไหม)')
                     break
-                time.sleep(1.5)
+                human_sleep(1.5)
                 current_state = State.REROLL
                 continue
             if prev == State.RESULT and current_state == State.REROLL:
