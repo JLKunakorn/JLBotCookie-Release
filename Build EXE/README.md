@@ -1,4 +1,4 @@
-﻿# JLmain V1.0.2 Premium - Build EXE
+﻿# JLmain V1.0.3 Premium - Build EXE
 
 โฟลเดอร์นี้เป็นชุด staging สำหรับ build exe ลูกค้าเท่านั้น
 
@@ -11,7 +11,7 @@ build_exe.bat
 ไฟล์ผลลัพธ์จะอยู่ที่:
 
 ```bat
-dist\JLmain_V1.0.2_Premium.exe
+dist\JLmain_V1.0.3_Premium.exe
 ```
 
 ## ข้อสำคัญ

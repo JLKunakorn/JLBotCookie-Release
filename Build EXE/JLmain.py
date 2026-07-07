@@ -15,7 +15,7 @@ import license_core
 
 
 APP_NAME = "JLmain"
-APP_DISPLAY_VERSION = "V1.0.2 Premium"
+APP_DISPLAY_VERSION = "V1.0.3 Premium"
 RELEASE_MODE = bool(getattr(sys, "frozen", False))
 
 BG = "#2B1D14"
@@ -392,9 +392,9 @@ class JLMainApp:
                     target_exe_path = os.path.abspath(current_exe)
                 else:
                     exe_dir = os.path.dirname(os.path.abspath(__file__))
-                    target_exe_path = os.path.join(exe_dir, "JLmain_V1.0.2_Premium.exe")
+                    target_exe_path = os.path.join(exe_dir, "JLmain_V1.0.3_Premium.exe")
                 
-                final_exe_name = "JLmain_V1.0.2_Premium.exe"
+                final_exe_name = "JLmain_V1.0.3_Premium.exe"
                 final_exe_path = os.path.join(exe_dir, final_exe_name)
                 temp_exe_path = os.path.join(exe_dir, "update_temp.exe")
                 updater_bat_path = os.path.join(exe_dir, "updater.bat")

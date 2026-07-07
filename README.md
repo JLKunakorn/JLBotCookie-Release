@@ -1,12 +1,12 @@
 # JL Bot Cookie Release
 
-Latest release version: `v1.0.2`
+Latest release version: `v1.0.3`
 
 This repository contains the Windows bot release staging files and the Cloudflare Worker license/shop backend.
 
 ## Project Layout
 
-- `Build EXE/` - packaged Windows release staging folder for `JLmain_V1.0.2_Premium`
+- `Build EXE/` - packaged Windows release staging folder for `JLmain_V1.0.3_Premium`
 - `JLCookie/` - application source and Cloudflare Worker project
 - `JLCookie/license_server/cloudflare/` - Worker, D1 schema/migrations, public shop page, and deployment config
 
