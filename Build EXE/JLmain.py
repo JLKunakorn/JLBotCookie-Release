@@ -15,7 +15,7 @@ import license_core
 
 
 APP_NAME = "JLmain"
-APP_DISPLAY_VERSION = "V1.0.3 Premium"
+APP_DISPLAY_VERSION = "V1.1.1 Premium"
 RELEASE_MODE = bool(getattr(sys, "frozen", False))
 
 BG = "#2B1D14"
@@ -315,19 +315,17 @@ class JLMainApp:
                     self._set_license_status("license หมดอายุ", BERRY)
                     if not self.license_expired_notified:
                         self.license_expired_notified = True
-                        self._log("[license] หมดเวลาใช้งานแล้ว\n")
+                        # self._log("[license] หมดเวลาใช้งานแล้ว\n")
                         if self.running:
                             bot.STOP_FLAG.set()
-                            self._log("[license] หยุดบอทเพราะ license หมดอายุ\n")
+                            # self._log("[license] หยุดบอทเพราะ license หมดอายุ\n")
             else:
                 self.license_countdown_var.set("")
         if schedule:
             self.root.after(1000, self._tick_license_countdown)
 
     def _check_license_on_start(self):
-        ok, info = license_core.check_license(force_online=False)
-        if not ok and license_core.get_saved_key():
-            ok, info = license_core.check_license(force_online=True)
+        ok, info = license_core.check_license(force_online=True)
         if ok:
             self._set_license_info(info)
             self._set_license_status(self._license_text(info), MINT)
@@ -348,9 +346,9 @@ class JLMainApp:
                 "ตรวจพบเวอร์ชันใหม่",
                 f"มีอัปเดตใหม่เวอร์ชัน: {srv_ver}\nเวอร์ชันของคุณในปัจจุบันคือ: {APP_DISPLAY_VERSION}\n\nต้องการดาวน์โหลดและติดตั้งเวอร์ชันใหม่โดยอัตโนมัติเลยหรือไม่?"
             ):
-                self._start_auto_update(dl_url)
+                self._start_auto_update(dl_url, srv_ver)
 
-    def _start_auto_update(self, dl_url):
+    def _start_auto_update(self, dl_url, srv_ver):
         popup = ctk.CTkToplevel(self.root)
         popup.title("ดาวน์โหลดอัปเดตใหม่")
         popup.geometry("380x150")
@@ -358,6 +356,7 @@ class JLMainApp:
         popup.configure(fg_color=BG)
         popup.transient(self.root)
         popup.grab_set()
+        popup.protocol("WM_DELETE_WINDOW", lambda: None)
 
         # Center relative to main window
         x = self.root.winfo_x() + max(0, (self.root.winfo_width() - 380) // 2)
@@ -387,14 +386,16 @@ class JLMainApp:
                 is_exe = current_exe.endswith(".exe") and "python" not in os.path.basename(current_exe).lower()
                 
                 # Determine absolute paths
+                srv_ver_clean = srv_ver.replace(" ", "_") if srv_ver else "update"
+                final_exe_name = f"JLmain_{srv_ver_clean}.exe"
+
                 if is_exe:
                     exe_dir = os.path.dirname(os.path.abspath(current_exe))
                     target_exe_path = os.path.abspath(current_exe)
                 else:
                     exe_dir = os.path.dirname(os.path.abspath(__file__))
-                    target_exe_path = os.path.join(exe_dir, "JLmain_V1.0.3_Premium.exe")
+                    target_exe_path = os.path.join(exe_dir, final_exe_name)
                 
-                final_exe_name = "JLmain_V1.0.3_Premium.exe"
                 final_exe_path = os.path.join(exe_dir, final_exe_name)
                 temp_exe_path = os.path.join(exe_dir, "update_temp.exe")
                 updater_bat_path = os.path.join(exe_dir, "updater.bat")
@@ -428,6 +429,7 @@ class JLMainApp:
                 time.sleep(1.0)
 
                 bat_content = f"""@echo off
+chcp 65001 > nul
 cd /d "{exe_dir}"
 :loop
 del "{target_exe_path}"
@@ -441,7 +443,7 @@ timeout /t 2 /nobreak > nul
 start "" "{final_exe_name}"
 del "%~f0"
 """
-                with open(updater_bat_path, "w", encoding="ansi") as bat_file:
+                with open(updater_bat_path, "w", encoding="utf-8") as bat_file:
                     bat_file.write(bat_content)
 
                 subprocess.Popen(
@@ -451,11 +453,12 @@ del "%~f0"
                 )
 
                 self.root.after(0, lambda: self.root.quit())
-                sys.exit(0)
+                os._exit(0)
 
             except Exception as e:
                 err_msg = f"ดาวน์โหลดไม่สำเร็จ: {str(e)}"
                 self.root.after(0, lambda s=err_msg: status_label.configure(text=s, text_color=BERRY))
+                self.root.after(0, lambda: popup.protocol("WM_DELETE_WINDOW", popup.destroy))
 
         import threading
         threading.Thread(target=worker, daemon=True).start()
@@ -522,7 +525,7 @@ del "%~f0"
                         msg = self._license_text(info)
                         self._set_license_info(info)
                         self._set_license_status(msg, MINT)
-                        self._log(f"[license] เปิดใช้งานสำเร็จ: {msg}\n")
+                        # self._log(f"[license] เปิดใช้งานสำเร็จ: {msg}\n")
                         popup.destroy()
                         self._check_app_update(info)
                     else:
@@ -530,7 +533,7 @@ del "%~f0"
                         popup_status.set(msg)
                         self._set_license_info(None)
                         self._set_license_status(msg, BERRY)
-                        self._log(f"[license] เปิดใช้งานไม่สำเร็จ: {msg}\n")
+                        # self._log(f"[license] เปิดใช้งานไม่สำเร็จ: {msg}\n")
 
                 self.root.after(0, done)
 
@@ -575,13 +578,13 @@ del "%~f0"
                     self._set_license_info(info)
                     self._set_license_status(msg, MINT)
                     self.license_key_var.set("")
-                    self._log(f"[license] เปิดใช้งานสำเร็จ: {msg}\n")
+                    # self._log(f"[license] เปิดใช้งานสำเร็จ: {msg}\n")
                     self._check_app_update(info)
                 else:
                     msg = str(info)
                     self._set_license_info(None)
                     self._set_license_status(msg, BERRY)
-                    self._log(f"[license] เปิดใช้งานไม่สำเร็จ: {msg}\n")
+                    # self._log(f"[license] เปิดใช้งานไม่สำเร็จ: {msg}\n")
 
             self.root.after(0, done)
 
@@ -891,6 +894,54 @@ del "%~f0"
         )
         self.relic_run_btn.pack(fill="x", padx=12, pady=12)
 
+        # 3. Send Hearts Card (Beta)
+        hearts_card = self._card(parent, "ระบบส่งหัวใจ (Send Hearts) (Beta)")
+        hearts_main = ctk.CTkFrame(hearts_card, fg_color=CARD)
+        hearts_main.pack(fill="x", padx=18, pady=(0, 16))
+        
+        self.hearts_run_var = tk.StringVar(value="▶ เริ่มส่งหัวใจ (Send Hearts) (Beta)")
+        self.hearts_run_btn = ctk.CTkButton(
+            hearts_main,
+            textvariable=self.hearts_run_var,
+            command=self.toggle_send_hearts,
+            height=46,
+            fg_color=CARAMEL,
+            hover_color=GOLD,
+            text_color="#2B1D14",
+            font=("Segoe UI", 15, "bold"),
+            corner_radius=12
+        )
+        self.hearts_run_btn.pack(fill="x", padx=12, pady=12)
+
+        # 4. Treasure Extract Card (Beta)
+        tr_card = self._card(parent, "ระบบสุ่มและย่อยสมบัติ (Treasure Draw & Extract) (Beta)")
+        tr_main = ctk.CTkFrame(tr_card, fg_color=CARD)
+        tr_main.pack(fill="x", padx=18, pady=(0, 16))
+        
+        # Warning label
+        warning_lbl = ctk.CTkLabel(
+            tr_main,
+            text="⚠️ คำเตือน: โปรดกดล็อค (⭐) สมบัติที่ต้องการเก็บให้ครบถ้วนในเกมก่อน!\nบอทจะทำการย่อยสมบัติทั้งหมดที่ไม่ถูกล็อค",
+            text_color="#FF8787",
+            font=("Segoe UI", 12, "bold"),
+            justify="left"
+        )
+        warning_lbl.pack(fill="x", padx=12, pady=(12, 4))
+        
+        self.tr_extract_run_var = tk.StringVar(value="▶ เริ่มสุ่มและย่อยสมบัติ (Beta)")
+        self.tr_extract_run_btn = ctk.CTkButton(
+            tr_main,
+            textvariable=self.tr_extract_run_var,
+            command=self.toggle_tr_extract,
+            height=46,
+            fg_color=CARAMEL,
+            hover_color=GOLD,
+            text_color="#2B1D14",
+            font=("Segoe UI", 15, "bold"),
+            corner_radius=12
+        )
+        self.tr_extract_run_btn.pack(fill="x", padx=12, pady=(4, 12))
+
     def toggle_gift_draw(self):
         if getattr(self, "gift_running", False):
             self.stop_gift_draw()
@@ -930,6 +981,100 @@ del "%~f0"
         self.gift_running = False
         self.gift_run_var.set("▶ เริ่มสุ่มกล่องของขวัญ")
         self.gift_run_btn.configure(
+            fg_color=CARAMEL,
+            hover_color=GOLD,
+            text_color="#2B1D14",
+            state="normal"
+        )
+        self.status_var.set("Ready")
+        self.status_lbl.configure(text_color=MUTED)
+
+    def toggle_send_hearts(self):
+        if getattr(self, "hearts_running", False):
+            self.stop_send_hearts()
+        else:
+            self.start_send_hearts()
+
+    def start_send_hearts(self):
+        self._apply_config()
+        bot.STOP_FLAG.clear()
+        self.hearts_running = True
+        self.hearts_run_var.set("■ หยุดส่งหัวใจ")
+        self.hearts_run_btn.configure(fg_color=BERRY, hover_color="#FF8787", text_color="white")
+        self.status_var.set("ส่งหัวใจ...")
+        self.status_lbl.configure(text_color=GOLD)
+        self._log("[app] เริ่มส่งหัวใจให้เพื่อนอัตโนมัติ (Beta)\n")
+        
+        def worker():
+            try:
+                if not bot.check_connection():
+                    self._log("[app] เชื่อมต่อ ADB ไม่ได้ หยุดส่งหัวใจ\n")
+                    return
+                bot.send_hearts_loop()
+            except Exception as e:
+                self._log(f"[app] ระบบส่งหัวใจทำงานขัดข้อง: {e}\n")
+            finally:
+                self.root.after(0, self._on_send_hearts_stopped)
+                
+        threading.Thread(target=worker, daemon=True).start()
+
+    def stop_send_hearts(self):
+        bot.STOP_FLAG.set()
+        self.status_var.set("กำลังหยุด...")
+        self.hearts_run_btn.configure(state="disabled")
+        self._log("[app] ส่งคำสั่งหยุดส่งหัวใจ...\n")
+
+    def _on_send_hearts_stopped(self):
+        self.hearts_running = False
+        self.hearts_run_var.set("▶ เริ่มส่งหัวใจ (Send Hearts) (Beta)")
+        self.hearts_run_btn.configure(
+            fg_color=CARAMEL,
+            hover_color=GOLD,
+            text_color="#2B1D14",
+            state="normal"
+        )
+        self.status_var.set("Ready")
+        self.status_lbl.configure(text_color=MUTED)
+
+    def toggle_tr_extract(self):
+        if getattr(self, "tr_extract_running", False):
+            self.stop_tr_extract()
+        else:
+            self.start_tr_extract()
+
+    def start_tr_extract(self):
+        self._apply_config()
+        bot.STOP_FLAG.clear()
+        self.tr_extract_running = True
+        self.tr_extract_run_var.set("■ หยุดสุ่มและย่อยสมบัติ")
+        self.tr_extract_run_btn.configure(fg_color=BERRY, hover_color="#FF8787", text_color="white")
+        self.status_var.set("สุ่มและย่อยสมบัติ...")
+        self.status_lbl.configure(text_color=GOLD)
+        self._log("[app] เริ่มระบบสุ่มและย่อยสมบัติอัตโนมัติ (Beta)\n")
+        
+        def worker():
+            try:
+                if not bot.check_connection():
+                    self._log("[app] เชื่อมต่อ ADB ไม่ได้ หยุดทำงาน\n")
+                    return
+                bot.draw_and_extract_loop()
+            except Exception as e:
+                self._log(f"[app] ระบบสุ่มและย่อยสมบัติทำงานขัดข้อง: {e}\n")
+            finally:
+                self.root.after(0, self._on_tr_extract_stopped)
+                
+        threading.Thread(target=worker, daemon=True).start()
+
+    def stop_tr_extract(self):
+        bot.STOP_FLAG.set()
+        self.status_var.set("กำลังหยุด...")
+        self.tr_extract_run_btn.configure(state="disabled")
+        self._log("[app] ส่งคำสั่งหยุดสุ่มและย่อยสมบัติ...\n")
+
+    def _on_tr_extract_stopped(self):
+        self.tr_extract_running = False
+        self.tr_extract_run_var.set("▶ เริ่มสุ่มและย่อยสมบัติ (Beta)")
+        self.tr_extract_run_btn.configure(
             fg_color=CARAMEL,
             hover_color=GOLD,
             text_color="#2B1D14",
@@ -1181,14 +1326,14 @@ del "%~f0"
             heartbeat_stop = threading.Event()
             try:
                 if license_core.is_enabled():
-                    self._log("[license] กำลังตรวจสิทธิ์ใช้งาน...\n")
+                    # self._log("[license] กำลังตรวจสิทธิ์ใช้งาน...\n")
                     ok, info = license_core.check_license(force_online=True)
                     if not ok:
-                        self._log(f"[license] ใช้งานไม่ได้: {info}\n")
+                        # self._log(f"[license] ใช้งานไม่ได้: {info}\n")
                         self.root.after(0, lambda: self._set_license_status(str(info), BERRY))
                         return
                     msg = self._license_text(info)
-                    self._log(f"[license] ตรวจสิทธิ์ผ่าน: {msg}\n")
+                    # self._log(f"[license] ตรวจสิทธิ์ผ่าน: {msg}\n")
                     self.root.after(0, lambda: (self._set_license_info(info), self._set_license_status(msg, MINT)))
                     self._start_license_heartbeat(heartbeat_stop)
 
@@ -1220,7 +1365,7 @@ del "%~f0"
                     msg = self._license_text(info)
                     self.root.after(0, lambda i=info, m=msg: (self._set_license_info(i), self._set_license_status(m, MINT)))
                     continue
-                self._log(f"[license] สิทธิ์ไม่ผ่านระหว่างใช้งาน: {info}\n")
+                # self._log(f"[license] สิทธิ์ไม่ผ่านระหว่างใช้งาน: {info}\n")
                 bot.STOP_FLAG.set()
                 self.root.after(0, lambda: self._set_license_status(str(info), BERRY))
                 break

@@ -188,7 +188,7 @@ def _label_for_serial(serial, emu='Emulator'):
 
 # --- LICENSE CONTEXTS (JLBOT EXCLUSIVE) ---
 _LICENSE_INFO = None
-REQUIRED_BOT_TIER = "pro"
+REQUIRED_BOT_TIER = "premium"
 
 def set_license_context(info):
     global _LICENSE_INFO
@@ -202,27 +202,44 @@ def _require_runtime_license():
     global _LICENSE_INFO
     import license_core
     if not license_core.is_enabled():
-        return True
+        return
     ok, info = license_core.check_license(force_online=False)
     if not ok:
         clear_license_context()
         raise RuntimeError(f'license ไม่ผ่าน: {info}')
-    tier = str(info.get('tier') or '').strip().lower() if isinstance(info, dict) else ''
-    if REQUIRED_BOT_TIER and tier != REQUIRED_BOT_TIER:
+    
+    # Check general signature tier validity
+    tier = info.get('tier', '').lower() if isinstance(info, dict) else ''
+    if tier not in ('pro', 'premium', 'infinite'):
         clear_license_context()
         raise RuntimeError(f'license tier ไม่ถูกต้อง: {tier or "ไม่มี tier"}')
+        
+    # Check hierarchical bot access (Premium vs Promax)
+    key_tier = info.get('key_tier', 'premium').lower()
+    if REQUIRED_BOT_TIER == "premium":
+        if key_tier not in ("premium", "promax"):
+            clear_license_context()
+            raise RuntimeError(f'สิทธิ์การใช้งานต่ำเกินไป (ต้องการ Premium ขึ้นไป, คีย์ของคุณคือ {key_tier.upper()})')
+    elif REQUIRED_BOT_TIER == "promax":
+        if key_tier not in ("promax",):
+            clear_license_context()
+            raise RuntimeError(f'สิทธิ์การใช้งานไม่เพียงพอ (ต้องการ Promax, คีย์ของคุณคือ {key_tier.upper()})')
+            
     set_license_context(info)
     return True
 
 # --- GLOBAL STATES ---
 ADB_PATH = find_adb()
 ADB_DEVICE = None if MULTI_EMU else 'emulator-5554'
-BOT_VERSION = '3.6'
+BOT_VERSION = '3.9'
 PREVENT_INACTIVE = BOT_VERSION == '2.1'
 BOT_TIER = 'pro'
 
 # --- TEMPLATES & THRESHOLDS ---
 MATCH_THRESHOLD = 0.85
+STABLE_DIFF = 6.0
+STABLE_GAP = 0.15
+STABLE_MAX_WAIT = 2.2
 IMG_TARGET_ITEM = 'templates/target_item.png'
 IMG_OK_BUTTON = 'templates/ok_button.png'
 IMG_RESULT = 'templates/result_screen.png'
@@ -265,6 +282,51 @@ FASTSTART_WINDOW = 25.0
 IMG_PITLIFT = 'templates/pitlift_popup.png'
 PITLIFT_THRESHOLD = 0.8
 BTN_PITLIFT_NO = None
+IMG_BAKERY_TITLE = 'templates/bakery_title.png'
+BAKERY_THRESHOLD = 0.72
+BTN_BAKERY_CLOSE = (1089, 171)
+
+# --- FRIEND SEND CONSTANTS ---
+BTN_FRIEND_SEND_X = 663
+FRIEND_ROWS = [320, 420, 525, 620]
+FRIEND_SEND_RED_MIN = 0.025
+FRIEND_SEND_GREEN_MIN = 0.2
+BTN_FRIEND_CONFIRM = (793, 458)
+BTN_FRIEND_CANCEL = (485, 458)
+BTN_FRIEND_SENT_OK = (640, 458)
+FRIEND_POPUP_GREEN_MIN = 0.45
+BTN_FRIEND_INFO_CLOSE = (1091, 72)
+FRIEND_SCROLL = (420, 585, 420, 350)
+FRIEND_LIST_REGION = (145, 280, 705, 645)
+IMG_FRIENDS_HEADER = 'templates/friends_header.png'
+SEND_HEARTS_MAX_SCROLLS = 3000
+
+# --- TREASURE EXTRACT CONSTANTS ---
+TR_MAX_CYCLES = 2000
+TR_POWDER_MAX = 30
+TR_POWDER_ROI = (1035, 583, 1150, 620)
+TR_DIG_THR = 90
+BTN_TR_NORMAL = (288, 527)
+BTN_TR_CHEST = (640, 360)
+BTN_TR_REVEAL_CONFIRM = (640, 568)
+BTN_TR_CABINET = (245, 132)
+BTN_TR_EXTRACT_ENTER = (600, 684)
+BTN_TR_SORT = (310, 96)
+BTN_TR_SORT_TIER = (235, 330)
+BTN_TR_TOPLEFT = (207, 190)
+BTN_TR_EXTRACT_GO = (940, 674)
+BTN_TR_EXTRACT_CONFIRM = (640, 518)
+BTN_TR_SUCCESS_CONFIRM = (640, 458)
+BTN_TR_EXTRACT_CLOSE = (1139, 105)
+BTN_TR_GRID_CLOSE = (1122, 101)
+IMG_TR_DRAW_TITLE = 'templates/tr_draw_title.png'
+IMG_TR_RECEIVED = 'templates/tr_received.png'
+IMG_TR_CABINET_TITLE = 'templates/tr_cabinet_title.png'
+IMG_TR_EXTRACT_TITLE = 'templates/tr_extract_title.png'
+IMG_TR_EXTRACT_CONFIRM = 'templates/tr_extract_confirm.png'
+IMG_TR_EXTRACT_SUCCESS = 'templates/tr_extract_success.png'
+IMG_TR_EXPAND_POPUP = 'templates/tr_expand_popup.png'
+BTN_TR_EXPAND_CLOSE = (640, 458)
 BTN_BOX = (540, 560)
 BTN_BUY = (925, 292)
 BTN_BUY_CONFIRM = (785, 448)
@@ -349,6 +411,20 @@ CAPTCHA_COUNT = 0
 CAPTCHA_CALLBACK = None
 CAPTCHA_CHECK_ENABLED = True
 LAST_CAPTCHA_CHECK_TIME = 0.0
+
+# พิกัดการ์ด 6 ใบของหน้าแคปช่า (x, y, w, h) @ 1280x720
+CAPTCHA_CARD_SLOTS = [
+    (365, 200, 140, 190),  # Card 1
+    (565, 200, 140, 190),  # Card 2
+    (765, 200, 140, 190),  # Card 3
+    (365, 450, 140, 190),  # Card 4
+    (565, 450, 140, 190),  # Card 5
+    (765, 450, 140, 190),  # Card 6
+]
+CAPTCHA_MOTION_FRAMES = 6      # จำนวนเฟรมที่จับเพื่อดูการขยับของการ์ด
+CAPTCHA_MOTION_INTERVAL = 0.2  # เว้นช่วงระหว่างเฟรม (วินาที)
+CAPTCHA_MOTION_CONF = 0.85     # ถ้าใบที่ต่างสุดยังคล้ายเกินค่านี้ = ไม่มั่นใจ -> fallback ภาพนิ่ง
+CAPTCHA_MAX_ROUNDS = 20        # safety cap กันลูปนิรันดร์ (เดิม 4) — ปกติหลุดเองเมื่อแคปช่าหาย
 
 # --- RELIC CONFIGS ---
 IMG_RELIC_GET = 'templates/relic_get.png'
@@ -553,96 +629,201 @@ def auto_select_device():
 
 _IN_CAPTCHA_SOLVER = False
 
+
+def _wait_while_captcha(stop_event=None):
+    """บล็อกระหว่างที่กำลังแก้แคปช่าอยู่ -> ให้แคปช่าทำก่อนงานอื่นทุก state
+       คืน True ถ้าถูกสั่งหยุด (STOP_FLAG หรือ stop_event) เพื่อให้ผู้เรียกออกจากลูป"""
+    while _IN_CAPTCHA_SOLVER:
+        if STOP_FLAG.is_set() or (stop_event is not None and stop_event.is_set()):
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def _capt_crop_slot(screen, rect):
+    x, y, w, h = rect
+    h_scr, w_scr = screen.shape[:2]
+    x1 = max(0, min(w_scr - 1, int(x)))
+    y1 = max(0, min(h_scr - 1, int(y)))
+    x2 = max(0, min(w_scr, int(x + w)))
+    y2 = max(0, min(h_scr, int(y + h)))
+    return screen[y1:y2, x1:x2]
+
+
+def _capt_card_similarity(a, b, max_shift=2):
+    """ความคล้ายของการ์ด 2 ใบจากภาพนิ่ง (จับ shift เล็กน้อยกันภาพเหลื่อม)"""
+    if a.size == 0 or b.size == 0:
+        return -1.0
+    b_resized = cv2.resize(b, (a.shape[1], a.shape[0]))
+    a_gray = cv2.cvtColor(a, cv2.COLOR_BGR2GRAY)
+    b_gray = cv2.cvtColor(b_resized, cv2.COLOR_BGR2GRAY)
+    if max_shift <= 0:
+        result = cv2.matchTemplate(a_gray, b_gray, cv2.TM_CCOEFF_NORMED)
+        return float(result[0][0])
+    best = -1.0
+    h, w = a_gray.shape[:2]
+    for dy in range(-max_shift, max_shift + 1):
+        for dx in range(-max_shift, max_shift + 1):
+            ax1 = max(0, dx)
+            ay1 = max(0, dy)
+            ax2 = min(w, w + dx)
+            ay2 = min(h, h + dy)
+            bx1 = max(0, -dx)
+            by1 = max(0, -dy)
+            a_crop = a_gray[ay1:ay2, ax1:ax2]
+            b_crop = b_gray[by1:by1 + a_crop.shape[0], bx1:bx1 + a_crop.shape[1]]
+            if a_crop.size < 1000 or b_crop.shape != a_crop.shape:
+                continue
+            result = cv2.matchTemplate(a_crop, b_crop, cv2.TM_CCOEFF_NORMED)
+            best = max(best, float(result[0][0]))
+    return best
+
+
+def _capt_motion_signature(card_frames, size=(48, 64)):
+    """ลายเซ็นการขยับของการ์ด 1 ใบ = ต่อภาพผลต่างระหว่างเฟรมติดกัน"""
+    resized = []
+    for frame in card_frames:
+        if frame.size == 0:
+            continue
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.resize(gray, size).astype(np.float32) / 255.0
+        resized.append(gray)
+    if len(resized) < 2:
+        return np.array([], dtype=np.float32)
+    diffs = [cv2.absdiff(prev, curr) for prev, curr in zip(resized, resized[1:])]
+    return np.concatenate([d.reshape(-1) for d in diffs]).astype(np.float32)
+
+
+def _capt_signature_similarity(a, b):
+    if a.size == 0 or b.size == 0:
+        return -1.0
+    length = min(a.size, b.size)
+    a = a[:length]
+    b = b[:length]
+    a_std = float(np.std(a))
+    b_std = float(np.std(b))
+    if a_std < 1e-6 or b_std < 1e-6:
+        return 1.0 if float(np.mean(np.abs(a - b))) < 1e-6 else 0.0
+    return float(np.corrcoef(a, b)[0, 1])
+
+
+def _capt_find_two_by_motion(sequence):
+    """เลือกการ์ด 2 ใบที่ขยับต่างจากพวกมากที่สุด -> คืน (picks, scores)"""
+    if not sequence:
+        return [], []
+    card_count = len(sequence[0])
+    signatures = []
+    for card_idx in range(card_count):
+        card_frames = [fs[card_idx] for fs in sequence if len(fs) > card_idx]
+        signatures.append(_capt_motion_signature(card_frames))
+    scores = []
+    for i, sig in enumerate(signatures):
+        others = [_capt_signature_similarity(sig, o) for j, o in enumerate(signatures) if i != j]
+        scores.append(float(np.mean(others)) if others else -1.0)
+    ranked = sorted(range(len(scores)), key=lambda idx: scores[idx])
+    return ranked[:2], scores
+
+
+def _capt_find_two_static(crops):
+    """สำรอง: เลือกการ์ด 2 ใบที่ภาพนิ่งต่างจากพวกมากที่สุด"""
+    scores = []
+    for i, crop in enumerate(crops):
+        others = [_capt_card_similarity(crop, o) for j, o in enumerate(crops) if i != j]
+        scores.append(float(np.mean(others)) if others else -1.0)
+    ranked = sorted(range(len(scores)), key=lambda idx: scores[idx])
+    return ranked[:2], scores
+
+
+def _capt_tap_slot(rect):
+    """กดการ์ดแบบเยื้องจากกลางเล็กน้อยเหมือนนิ้วคนจริง (ไม่หลุดขอบการ์ด)"""
+    x, y, w, h = rect
+    cx = x + w / 2 + random.gauss(0, min(3.0, w / 8))
+    cy = y + h / 2 + random.gauss(0, min(3.0, h / 8))
+    cx = max(x + 4, min(x + w - 4, cx))
+    cy = max(y + 4, min(y + h - 4, cy))
+    adb_tap(cx, cy, jitter=0)
+
+
+def _capt_capture_sequence(frames, interval):
+    """จับหลายเฟรมแล้ว crop การ์ดทั้ง 6 ใบต่อเฟรม -> คืน (last_screen, sequence)"""
+    last = None
+    sequence = []
+    for _ in range(frames):
+        s = adb_screencap(check_captcha=False)
+        if s is None:
+            time.sleep(interval)
+            continue
+        last = s
+        sequence.append([_capt_crop_slot(s, r) for r in CAPTCHA_CARD_SLOTS])
+        time.sleep(interval)
+    return last, sequence
+
+
+def _capt_title_score(screen, tpl):
+    if screen is None:
+        return 0.0
+    res = cv2.matchTemplate(screen, tpl, cv2.TM_CCOEFF_NORMED)
+    _, score, _, _ = cv2.minMaxLoc(res)
+    return float(score)
+
+
 def check_and_solve_captcha_on_screen(screen):
-    global _IN_CAPTCHA_SOLVER
+    """ตรวจ+แก้แคปช่าด้วย motion detection (ดูการ์ดที่ขยับต่างจากพวก) มี fallback ภาพนิ่ง
+       คืน True เมื่อ 'ตรวจพบแคปช่า' (จอถือว่า stale ให้ผู้เรียกแคปใหม่) / False เมื่อไม่พบ"""
+    global _IN_CAPTCHA_SOLVER, CAPTCHA_COUNT, CAPTCHA_CALLBACK
     tpl_path = 'templates/captcha_title.png'
     if not os.path.exists(tpl_path):
         return False
-        
+
     tpl = cv2.imread(tpl_path)
-    res = cv2.matchTemplate(screen, tpl, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(res)
-    
-    if max_val < 0.70:
+    if tpl is None:
         return False
-        
+    if _capt_title_score(screen, tpl) < 0.70:
+        return False
+
     _IN_CAPTCHA_SOLVER = True
-    print(f'[ระบบแคปช่า] 🚨 ตรวจพบระบบแคปช่าบนจอ {ADB_DEVICE}! (คะแนนตรวจพบ = {max_val:.4f}) -> เริ่มแก้ไขอัตโนมัติ...')
-    
+    print(f'[ระบบแคปช่า] 🚨 ตรวจพบระบบแคปช่าบนจอ {ADB_DEVICE}! -> เริ่มแก้ไขอัตโนมัติ (motion)...')
+    solved = False
     try:
-        user_cards = [
-            (351, 186, 170, 220), # Card 1
-            (547, 186, 170, 220), # Card 2
-            (746, 186, 170, 220), # Card 3
-            (350, 440, 170, 220), # Card 4
-            (550, 440, 170, 220), # Card 5
-            (750, 440, 170, 220)  # Card 6
-        ]
-        
         round_idx = 1
-        current_screen = screen
-        
-        while True:
-            gray = cv2.cvtColor(current_screen, cv2.COLOR_BGR2GRAY)
-            cookie_masks = []
-            for idx, (bx, by, bw, bh) in enumerate(user_cards):
-                pad_x = int(bw * 0.1)
-                pad_y = int(bh * 0.1)
-                card_crop = gray[by + pad_y : by + bh - pad_y, bx + pad_x : bx + bw - pad_x]
-                
-                _, cookie_mask = cv2.threshold(card_crop, 220, 255, cv2.THRESH_BINARY_INV)
-                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-                cookie_mask = cv2.morphologyEx(cookie_mask, cv2.MORPH_OPEN, kernel)
-                
-                cookie_cnts, _ = cv2.findContours(cookie_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                if len(cookie_cnts) > 0:
-                    cx0 = min(cv2.boundingRect(cc)[0] for cc in cookie_cnts)
-                    cy0 = min(cv2.boundingRect(cc)[1] for cc in cookie_cnts)
-                    cx1 = max(cv2.boundingRect(cc)[0] + cv2.boundingRect(cc)[2] for cc in cookie_cnts)
-                    cy1 = max(cv2.boundingRect(cc)[1] + cv2.boundingRect(cc)[3] for cc in cookie_cnts)
-                    
-                    cookie_box = cookie_mask[cy0:cy1, cx0:cx1]
-                    cookie_resized = cv2.resize(cookie_box, (64, 64))
+        while round_idx <= CAPTCHA_MAX_ROUNDS:
+            if STOP_FLAG.is_set():
+                break
+
+            last_screen, sequence = _capt_capture_sequence(CAPTCHA_MOTION_FRAMES, CAPTCHA_MOTION_INTERVAL)
+            if not sequence:
+                break
+
+            picks, scores = _capt_find_two_by_motion(sequence)
+            mode = 'motion'
+            # ถ้าใบที่ต่างสุดยังคล้ายพวกเกินเกณฑ์ = ไม่มีการขยับชัด -> เทียบภาพนิ่งแทน
+            if len(picks) < 2 or scores[picks[0]] >= CAPTCHA_MOTION_CONF:
+                base = last_screen if last_screen is not None else screen
+                crops = [_capt_crop_slot(base, r) for r in CAPTCHA_CARD_SLOTS]
+                picks, scores = _capt_find_two_static(crops)
+                mode = 'static'
+            if len(picks) < 2:
+                break
+
+            print(f'[ระบบแคปช่า] 🎯 ด่านที่ {round_idx} ({mode}) -> เลือกการ์ดใบที่ {picks[0]+1} และ {picks[1]+1}  '
+                  f'scores={[round(s, 3) for s in scores]}')
+
+            for i, idx in enumerate(picks):
+                _capt_tap_slot(CAPTCHA_CARD_SLOTS[idx])
+                if i < len(picks) - 1:
+                    time.sleep(random.uniform(0.95, 1.25))
                 else:
-                    cookie_resized = np.zeros((64, 64), dtype=np.uint8)
-                    
-                cookie_masks.append(cookie_resized)
-                
-            dist_matrix = np.zeros((6, 6))
-            for i in range(6):
-                for j in range(6):
-                    if i == j:
-                        dist_matrix[i, j] = 0.0
-                    else:
-                        mse = np.mean((cookie_masks[i].astype(float) - cookie_masks[j].astype(float)) ** 2)
-                        dist_matrix[i, j] = mse
-                        
-            distance_sums = np.sum(dist_matrix, axis=1)
-            sorted_indices = np.argsort(distance_sums)[::-1]
-            minority_indices = sorted_indices[:2]
-            
-            print(f'[ระบบแคปช่า] 🎯 ด่านที่ {round_idx} -> พบกลุ่มแปลกแยกคือ การ์ดใบที่ {minority_indices[0]+1} และ การ์ดใบที่ {minority_indices[1]+1}')
-            
-            for card_idx in minority_indices:
-                bx, by, bw, bh = user_cards[card_idx]
-                click_x = bx + bw // 2
-                click_y = by + bh // 2
-                adb_tap(click_x, click_y)
-                human_sleep(1.0)
-                
-            human_sleep(2.5)
-            
+                    time.sleep(0.3)
+
+            human_sleep(2.0)
+
             next_screen = adb_screencap(check_captcha=False)
             if next_screen is None:
                 break
-                
-            res = cv2.matchTemplate(next_screen, tpl, cv2.TM_CCOEFF_NORMED)
-            _, score, _, _ = cv2.minMaxLoc(res)
-            
+            score = _capt_title_score(next_screen, tpl)
             if score < 0.70:
-                print(f'[ระบบแคปช่า] ✅ แก้ไขสำเร็จ แคปช่าหายไปแล้ว (คะแนนเหลือ = {score:.4f})')
-                # เพิ่มสถิติจำนวนครั้งที่เจอและแก้ไขแคปช่าสำเร็จ
-                global CAPTCHA_COUNT, CAPTCHA_CALLBACK
+                print(f'[ระบบแคปช่า] ✅ แก้ไขสำเร็จ แคปช่าหายไปแล้ว (คะแนนเหลือ = {score:.4f}, {round_idx} รอบ)')
+                solved = True
                 CAPTCHA_COUNT += 1
                 if CAPTCHA_CALLBACK is not None:
                     try:
@@ -650,20 +831,19 @@ def check_and_solve_captcha_on_screen(screen):
                     except Exception:
                         pass
                 break
-                
-            current_screen = next_screen
+
             round_idx += 1
-            if round_idx > 4:
-                print('[ระบบแคปช่า] ⚠️ แก้ไขไป 4 รอบแล้วยังไม่หาย -> ออกจากลูปเพื่อความปลอดภัย')
-                break
-                
+
+        if not solved and round_idx > CAPTCHA_MAX_ROUNDS:
+            print(f'[ระบบแคปช่า] ⚠️ แก้ครบ {CAPTCHA_MAX_ROUNDS} รอบแล้วยังไม่หาย -> หยุดเพื่อความปลอดภัย')
+
     except Exception as e:
         print(f'[ระบบแคปช่า] ❌ เกิดข้อผิดพลาดขณะแก้แคปช่า: {e}')
         if not getattr(sys, 'frozen', False):
             print(traceback.format_exc())
     finally:
         _IN_CAPTCHA_SOLVER = False
-        
+
     return True
 
 def adb_screencap(check_captcha=True):
@@ -699,6 +879,43 @@ def adb_screencap(check_captcha=True):
     except Exception as e:
         print(f'[ERR] adb_screencap: {e}')
         return None
+
+def _can_screencap(device):
+    """ทดสอบว่า device นี้ 'แคปหน้าจอได้จริง' ไหม — กัน device ที่ต่อหลอกๆ (ขึ้น online
+       แต่แคปจอไม่ได้ เช่นพอร์ตจาก config ของ MuMu ที่ไม่ใช่ instance ที่รันจริง)
+       -> คืน True เฉพาะเมื่อได้ข้อมูลภาพจริงกลับมา"""
+    try:
+        r = _run([ADB_PATH, '-s', str(device), 'exec-out', 'screencap', '-p'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=8)
+        return bool(r.stdout) and len(r.stdout) > 2000
+    except Exception:
+        return False
+
+def adb_screencap_stable(max_wait=None, gap=None, diff=None):
+    """แคปหน้าจอ "จนกว่าภาพจะนิ่ง" แล้วค่อยคืน — กันเครื่องช้า/หน่วงอ่านเฟรมกลางทรานสิชัน/เฟรมขาด
+       วิธี: แคป 2 เฟรมห่างกัน gap วิ ถ้าต่างกันน้อยกว่า diff (_frame_signature) = ตกตะกอนแล้ว -> คืนเฟรมนั้น
+             ยังไม่นิ่ง = แคปใหม่ไปเรื่อยๆ จนนิ่ง หรือครบ max_wait (คืนเฟรมล่าสุด ไม่ค้าง)
+       *** ใช้เฉพาะตอนนำทาง/เมนู — ห้ามใช้ตอนวิ่งจริงที่พื้นหลังเลื่อนตลอด (จะไม่มีวันนิ่ง = รอจนหมดเวลาทุกครั้ง) ***
+       คืน None ถ้าแคปไม่ได้เลย (เหมือน adb_screencap)"""
+    w = max_wait if max_wait is not None else STABLE_MAX_WAIT
+    g = gap if gap is not None else STABLE_GAP
+    d = diff if diff is not None else STABLE_DIFF
+    prev = adb_screencap()
+    if prev is None:
+        return None
+    start = time.time()
+    while time.time() - start < w:
+        if STOP_FLAG.is_set():
+            return prev
+        time.sleep(g)
+        cur = adb_screencap()
+        if cur is None:
+            return prev
+        s1 = _frame_signature(prev)
+        s2 = _frame_signature(cur)
+        if float(np.mean(np.abs(s2 - s1))) < d:
+            return cur
+        prev = cur
+    return prev
 
 def human_sleep(base_seconds):
     """นอนหลับสุ่มช่วงเวลาสั้นๆ +/- 15% - 20% เพื่อเลียนแบบพฤติกรรมมนุษย์และหลบหลีกการตรวจจับ"""
@@ -1285,6 +1502,12 @@ def ensure_on_boost_screen(max_tries=15):
                         print(f'[ระบบนำทาง] ตรวจพบกล่องชุบชีวิตเสียคริสตัล (Pit Lift) -> รอระบบปฏิเสธเอง')
                     human_sleep(1.2)
                     continue
+            bf, _, bsc = _find_optional(screen, IMG_BAKERY_TITLE, BAKERY_THRESHOLD)
+            if bf:
+                print(f'[ระบบนำทาง] ตรวจพบหน้าต่าง Fortune Bakery (เตาอบ) -> กดปิดด้วย X ป้องกันการเสียคริสตัล')
+                adb_tap(*BTN_BAKERY_CLOSE)
+                human_sleep(1.2)
+                continue
             dismissed_confirm = False
             for cp in CONFIRM_POPUPS:
                 cf, _, csc = find_template(screen, cp['img'], cp['th'])
@@ -1458,6 +1681,8 @@ def state_run():
                     if jump_stop.is_set() or STOP_FLAG.is_set():
                         return None
                     time.sleep(min(t_at - (time.time() - t0), 0.04))
+                if _IN_CAPTCHA_SOLVER and _wait_while_captcha(jump_stop):
+                    return None
                 if action == 'slide':
                     threading.Thread(target=adb_slide, daemon=True).start()
                 else:
@@ -1469,6 +1694,10 @@ def state_run():
             print('\n===== [STATE 2] RUN — กด Jump สุ่มตำแหน่งโซน 2 มิติ+ดีเลย์ + คอยกด relay =====')
             def worker_loop():
                 while not jump_stop.is_set() and (not STOP_FLAG.is_set()):
+                    if _IN_CAPTCHA_SOLVER:
+                        if _wait_while_captcha(jump_stop):
+                            return None
+                        continue
                     adb_tap(*_jump_point(), jitter=0)
                     jump_count[0] += 1
                     time.sleep(random.uniform(JUMP_DELAY_MIN, JUMP_DELAY_MAX))
@@ -1476,6 +1705,10 @@ def state_run():
             print('\n===== [STATE 2] RUN — โหมดกดสุ่มห่างๆ (กระโดด/สไลด์ นานๆที) + คอยกด relay =====')
             def worker_loop():
                 while not jump_stop.is_set() and (not STOP_FLAG.is_set()):
+                    if _IN_CAPTCHA_SOLVER:
+                        if _wait_while_captcha(jump_stop):
+                            return None
+                        continue
                     end = time.time() + random.uniform(IDLE_ACTION_MIN, IDLE_ACTION_MAX)
                     while time.time() < end:
                         if jump_stop.is_set() or STOP_FLAG.is_set():
@@ -1683,6 +1916,293 @@ def run_state_machine(max_loops=0, on_loop_done=None):
     finally:
         STOP_FLAG.set()
         print('\n===== บอทหยุดทำงานแล้ว =====')
+
+# --- SEND HEARTS (BETA) ---
+
+def _wait_friend_popup(pos, tries=5):
+    for _ in range(tries):
+        if STOP_FLAG.is_set():
+            return False
+        screen = adb_screencap()
+        if screen is not None and _btn_green_ratio(screen, pos[0], pos[1]) > FRIEND_POPUP_GREEN_MIN:
+            return True
+        time.sleep(random.uniform(0.22, 0.4))
+    return False
+
+def _friend_send_active(screen, y, x=BTN_FRIEND_SEND_X, half=32):
+    if screen is None:
+        return False
+    y1, y2 = (max(0, y - half), min(screen.shape[0], y + half))
+    x1, x2 = (max(0, x - half), min(screen.shape[1], x + half))
+    roi = screen[y1:y2, x1:x2]
+    if roi.size == 0:
+        return False
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    red = cv2.inRange(hsv, (0, 120, 90), (10, 255, 255)) | cv2.inRange(hsv, (170, 120, 90), (180, 255, 255))
+    grn = cv2.inRange(hsv, (35, 80, 80), (85, 255, 255))
+    area = roi.shape[0] * roi.shape[1]
+    red_ratio = float(red.sum()) / 255.0 / area
+    grn_ratio = float(grn.sum()) / 255.0 / area
+    return red_ratio > FRIEND_SEND_RED_MIN and grn_ratio > FRIEND_SEND_GREEN_MIN
+
+def _topmost_send_button(screen, half=22, step=12):
+    if screen is None:
+        return None
+    run = []
+    for y in range(298, 646, step):
+        if _friend_send_active(screen, y, half=half):
+            run.append(y)
+        else:
+            if run:
+                return sum(run) // len(run)
+    return sum(run) // len(run) if run else None
+
+def _tap_burst(x, y, n=3, gap=0.08):
+    for _ in range(n):
+        adb_tap(x, y)
+        time.sleep(gap)
+
+def send_hearts_loop():
+    _require_runtime_license()
+    print("\n===== [SendHearts] ส่งหัวใจให้เพื่อน (Beta) =====")
+    screen = adb_screencap()
+    if screen is not None and _find_optional(screen, IMG_FRIEND_POPUP, 0.8)[0]:
+        adb_tap(*BTN_FRIEND_INFO_CLOSE)
+        time.sleep(random.uniform(0.5, 0.8))
+        screen = adb_screencap()
+    if screen is None or not _find_optional(screen, IMG_FRIENDS_HEADER, 0.72)[0]:
+        print("[hearts] ไม่ได้อยู่หน้า Friends leaderboard -> ไปล็อบบี้ (แท็บ Friends) ก่อนแล้วกดใหม่")
+        return
+    rx1, ry1, rx2, ry2 = FRIEND_LIST_REGION
+    print("[hearts] ⏳ กำลังเลื่อนลิสต์ขึ้นบนสุดก่อน (อันดับ 1) แล้วจะเริ่มส่ง — ช่วงนี้ยังไม่ส่ง รอสักครู่...")
+    for i in range(60):
+        if STOP_FLAG.is_set():
+            break
+        s1 = _frame_signature(screen[ry1:ry2, rx1:rx2]) if screen is not None else None
+        adb_swipe(420, 320, 420, 605, 300)
+        time.sleep(random.uniform(0.3, 0.5))
+        screen = adb_screencap()
+        if screen is None:
+            break
+        s2 = _frame_signature(screen[ry1:ry2, rx1:rx2])
+        if s1 is not None and float(np.mean(np.abs(s2 - s1))) < 2.5:
+            break
+        if (i + 1) % 8 == 0:
+            print(f"[hearts]    ...ยังเลื่อนขึ้นอยู่ ({i + 1} ครั้ง)")
+    if STOP_FLAG.is_set():
+        print("[hearts] หยุดตามคำสั่ง (ระหว่างเลื่อนขึ้น) — ยังไม่ได้ส่ง")
+        return
+    print("[hearts] ✅ ถึงบนสุดแล้ว — เริ่มส่งหัวใจจากอันดับ 1 ลงล่างไปเรื่อยๆ")
+    sent = 0
+    for _ in range(SEND_HEARTS_MAX_SCROLLS):
+        if STOP_FLAG.is_set():
+            print(f"[hearts] หยุดตามคำสั่ง — ส่งไป {sent} คน")
+            break
+        screen = adb_screencap()
+        if screen is not None:
+            if _btn_green_ratio(screen, *BTN_FRIEND_CONFIRM) > FRIEND_POPUP_GREEN_MIN:
+                adb_tap(*BTN_FRIEND_CANCEL)
+                time.sleep(random.uniform(0.4, 0.6))
+            else:
+                if _btn_green_ratio(screen, *BTN_FRIEND_SENT_OK) > FRIEND_POPUP_GREEN_MIN:
+                    adb_tap(*BTN_FRIEND_SENT_OK)
+                    time.sleep(random.uniform(0.4, 0.6))
+                else:
+                    if _find_optional(screen, IMG_FRIEND_POPUP, 0.8)[0]:
+                        adb_tap(*BTN_FRIEND_INFO_CLOSE)
+                        time.sleep(random.uniform(0.4, 0.6))
+        for _ in range(6):
+            if STOP_FLAG.is_set():
+                break
+            screen = adb_screencap()
+            if screen is None:
+                break
+            ty = _topmost_send_button(screen)
+            if ty is None:
+                break
+            adb_tap(BTN_FRIEND_SEND_X, ty)
+            time.sleep(random.uniform(0.3, 0.5))
+            if not _wait_friend_popup(BTN_FRIEND_CONFIRM):
+                break
+            adb_tap(*BTN_FRIEND_CONFIRM)
+            sent += 1
+            if sent % 20 == 0:
+                print(f"[hearts] ส่งแล้ว {sent} คน...")
+            if _wait_friend_popup(BTN_FRIEND_SENT_OK):
+                adb_tap(*BTN_FRIEND_SENT_OK)
+            time.sleep(random.uniform(0.35, 0.55))
+        adb_swipe(*FRIEND_SCROLL, 420)
+        time.sleep(random.uniform(0.6, 0.85))
+        screen = adb_screencap()
+        if screen is not None and _find_optional(screen, IMG_FRIEND_POPUP, 0.8)[0]:
+            adb_tap(*BTN_FRIEND_INFO_CLOSE)
+            time.sleep(random.uniform(0.4, 0.6))
+    screen = adb_screencap()
+    if screen is not None and _find_optional(screen, IMG_FRIEND_POPUP, 0.8)[0]:
+        adb_tap(*BTN_FRIEND_INFO_CLOSE)
+        time.sleep(random.uniform(0.4, 0.6))
+    print(f"[hearts] จบ — ส่งหัวใจ {sent} คน")
+
+
+# --- TREASURE EXTRACT (BETA) ---
+
+def _read_tr_number(screen, roi):
+    if screen is None:
+        return None
+    tpls = _load_digit_templates()
+    if len(tpls) < 10:
+        return None
+    x1, y1, x2, y2 = roi
+    if y2 > screen.shape[0] or x2 > screen.shape[1]:
+        return None
+    g = cv2.cvtColor(screen[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+    _, th = cv2.threshold(g, TR_DIG_THR, 255, cv2.THRESH_BINARY_INV)
+    cols = th.sum(axis=0)
+    groups, inrun, st = ([], False, 0)
+    for x, v in enumerate(cols):
+        if v > 0 and (not inrun):
+            st, inrun = (x, True)
+        else:
+            if v == 0 and inrun:
+                groups.append((st, x))
+                inrun = False
+    if inrun:
+        groups.append((st, len(cols)))
+    boxes = []
+    for a, b in groups:
+        rows = np.where(th[:, a:b].sum(axis=1) > 0)[0]
+        if len(rows) and rows[-1] - rows[0] >= 12 and (b - a >= 4):
+            boxes.append((a, rows[0], b, rows[-1] + 1))
+    if not boxes:
+        return None
+    out = ""
+    for bx0, by0, bx1, by1 in boxes:
+        gl = cv2.resize(th[by0:by1, bx0:bx1], (_DIG_GW, _DIG_GH)).astype(np.float32)
+        best, sc = ("?", -1.0)
+        for ch, t in tpls.items():
+            r = cv2.matchTemplate(gl, t, cv2.TM_CCOEFF_NORMED)[0][0]
+            if r > sc:
+                sc, best = (r, ch)
+        if best == "?" or sc < 0.3:
+            return None
+        out += best
+    try:
+        return int(out)
+    except ValueError:
+        return None
+
+def _read_powder(screen):
+    return _read_tr_number(screen, TR_POWDER_ROI)
+
+def _tr_cancel_extract():
+    adb_tap(*BTN_TR_EXTRACT_CLOSE)
+    time.sleep(random.uniform(1.2, 1.8))
+
+def _tr_goto_extract_grid():
+    for _ in range(3):
+        if STOP_FLAG.is_set():
+            return False
+        adb_tap(*BTN_TR_CABINET)
+        time.sleep(random.uniform(1.8, 2.2))
+        screen = adb_screencap_stable()
+        if screen is not None:
+            if _find_optional(screen, IMG_TR_CABINET_TITLE, 0.85)[0]:
+                return True
+            if _find_optional(screen, IMG_TR_EXPAND_POPUP, 0.8)[0]:
+                print("[treasure] เจอป๊อปอัป 'ตู้เต็ม/ขยายตู้' -> ปิด (ไม่ขยาย) แล้วลองเข้าตู้ใหม่")
+                adb_tap(*BTN_TR_EXPAND_CLOSE)
+                time.sleep(random.uniform(1.2, 1.6))
+    return False
+
+def draw_and_extract_loop():
+    _require_runtime_license()
+    print("\n===== [Treasure] สุ่ม+ย่อยสมบัติ (Beta) =====")
+    print("*** เตือน: ล็อกดาว (⭐) สมบัติที่อยากเก็บให้ครบก่อน! ที่ไม่ล็อก = บอทย่อยได้ ***")
+    screen = adb_screencap_stable()
+    if screen is None or not _find_optional(screen, IMG_TR_DRAW_TITLE, 0.85)[0]:
+        print("[treasure] ไม่ได้อยู่หน้า 'Treasure Draw' -> เปิดหน้าสุ่มสมบัติก่อน (ล็อบบี้ -> Treasure -> Draw) แล้วกดใหม่")
+        return
+    drawn = extracted = 0
+    draw_fail = 0
+    for _ in range(TR_MAX_CYCLES):
+        if STOP_FLAG.is_set():
+            print(f"[treasure] หยุดตามคำสั่ง — สุ่ม {drawn} / ย่อย {extracted}")
+            break
+        screen = adb_screencap_stable()
+        if screen is None or not _find_optional(screen, IMG_TR_DRAW_TITLE, 0.85)[0]:
+            print("[treasure] หลุดจากหน้า Draw (นำทางผิด) -> หยุด")
+            break
+        adb_tap(*BTN_TR_NORMAL)
+        time.sleep(random.uniform(1.8, 2.4))
+        got_reveal = False
+        for _ in range(7):
+            if STOP_FLAG.is_set():
+                break
+            adb_tap(*BTN_TR_CHEST)
+            time.sleep(random.uniform(1.1, 1.5))
+            screen = adb_screencap_stable()
+            if screen is not None and _find_optional(screen, IMG_TR_RECEIVED, 0.8)[0]:
+                got_reveal = True
+                break
+        if got_reveal:
+            drawn += 1
+            draw_fail = 0
+            adb_tap(*BTN_TR_REVEAL_CONFIRM)
+            time.sleep(random.uniform(1.6, 2.2))
+        else:
+            draw_fail += 1
+            print(f"[treasure] สุ่มไม่สำเร็จ (ครั้งที่ {draw_fail}) — ตู้อาจเต็ม/เหรียญไม่พอ")
+            if draw_fail >= 2:
+                print("[treasure] สุ่มไม่ได้ติดกัน 2 ครั้ง (แม้ย่อยเคลียร์ที่แล้ว) = เหรียญหมด -> หยุด")
+                break
+        if not _tr_goto_extract_grid():
+            print("[treasure] เข้าหน้าตู้ไม่สำเร็จ -> หยุด")
+            break
+        adb_tap(*BTN_TR_EXTRACT_ENTER)
+        time.sleep(random.uniform(1.8, 2.4))
+        screen = adb_screencap_stable()
+        if screen is None or not _find_optional(screen, IMG_TR_EXTRACT_TITLE, 0.85)[0]:
+            print("[treasure] เข้าโหมด Extract ไม่สำเร็จ -> หยุด")
+            break
+        adb_tap(*BTN_TR_SORT)
+        time.sleep(random.uniform(1.0, 1.4))
+        adb_tap(*BTN_TR_SORT_TIER)
+        time.sleep(random.uniform(1.2, 1.6))
+        adb_tap(*BTN_TR_TOPLEFT)
+        time.sleep(random.uniform(1.2, 1.6))
+        screen = adb_screencap_stable()
+        powder = _read_powder(screen)
+        if powder is None:
+            print("[treasure] อ่านค่า powder ไม่ได้ -> ยกเลิก+หยุด (fail-safe ไม่ย่อยตอนไม่แน่ใจ)")
+            _tr_cancel_extract()
+            break
+        if powder == 0:
+            print("[treasure] เลือกไม่ติด (ชิ้นบนสุดถูกล็อก⭐/ใส่อยู่ = ไม่มีขยะให้ย่อย) -> ยกเลิก+หยุด")
+            _tr_cancel_extract()
+            break
+        if powder > TR_POWDER_MAX:
+            print(f"[treasure] powder={powder} > {TR_POWDER_MAX} = ของมีค่า/ขยะหมดแล้ว -> ยกเลิก+หยุด (ไม่ย่อยของแพง)")
+            _tr_cancel_extract()
+            break
+        print(f"[treasure] ย่อยขยะ (powder={powder}, tier ต่ำสุด, ปลอดภัย)")
+        adb_tap(*BTN_TR_EXTRACT_GO)
+        time.sleep(random.uniform(1.4, 1.8))
+        screen = adb_screencap_stable()
+        if screen is None or not _find_optional(screen, IMG_TR_EXTRACT_CONFIRM, 0.8)[0]:
+            print("[treasure] ไม่เห็นหน้ายืนยัน Extract -> หยุด")
+            break
+        adb_tap(*BTN_TR_EXTRACT_CONFIRM)
+        time.sleep(random.uniform(1.6, 2.2))
+        screen = adb_screencap_stable()
+        if screen is None or not _find_optional(screen, IMG_TR_EXTRACT_SUCCESS, 0.8)[0]:
+            print("[treasure] ไม่เห็น 'Extraction successful' -> หยุด (ไม่แน่ใจผลย่อย)")
+            break
+        extracted += 1
+        adb_tap(*BTN_TR_SUCCESS_CONFIRM)
+        time.sleep(random.uniform(1.6, 2.2))
+        adb_tap(*BTN_TR_GRID_CLOSE)
+        time.sleep(random.uniform(1.6, 2.2))
+    print(f"[treasure] จบ — สุ่ม {drawn} / ย่อย {extracted} ชิ้น")
 
 def main():
     print('============================================================')
