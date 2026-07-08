@@ -1308,7 +1308,7 @@
       <div id="buy-step-1">
         <div class="auth-toggle-bar" style="margin-bottom: 24px; max-width: 500px; margin-left: auto; margin-right: auto;">
           <button class="auth-toggle-btn active" type="button" id="btnBuyTabPremium">JL BOT Premium (พร้อมขาย)</button>
-          <button class="auth-toggle-btn" type="button" id="btnBuyTabProMax">JL BOT ProMax (Coming Soon)</button>
+          <button class="auth-toggle-btn" type="button" id="btnBuyTabProMax">JL BOT ProMax (พร้อมขาย)</button>
         </div>
 
         <div id="buy-premium-panel">
@@ -1563,6 +1563,10 @@
               <div class="play-btn"></div>
               <div class="video-title-overlay">ขั้นตอนการใช้งาน JL Bot Cookie</div>
             </button>
+            <button type="button" class="video-mockup" data-video-url="https://youtu.be/2tCCZyq2Znc?si=qi-z-3E8nrEk2n2H" data-video-title="ตัวอย่างการทำงาน ระบบรีโรลไอดี (JL Bot Promax)" aria-label="วิดีโอสาธิตการรีโรลไอดี JL Bot Promax" style="margin-top: 12px;">
+              <div class="play-btn" style="border-color: transparent transparent transparent var(--amber);"></div>
+              <div class="video-title-overlay">วิดีโอระบบรีโรลไอดี (JL Bot Promax)</div>
+            </button>
             <div class="video-slot-note">แนะนำให้อัปโหลดวิดีโอเป็น YouTube แบบไม่แสดงสาธารณะ แล้วนำลิงก์มาใส่ตรงนี้เพื่อให้เปิดบนมือถือและคอมได้ลื่นกว่าไฟล์วิดีโอตรง</div>
           </div>
 
@@ -1656,12 +1660,18 @@
     const planData = {
       "1 วัน": { code: "1d", price: 10, duration: "24 ชั่วโมง", days: 1 },
       "7 วัน": { code: "7d", price: 50, duration: "7 วัน", days: 7 },
-      "30 วัน": { code: "30d", price: 150, duration: "30 วัน", days: 30 }
+      "30 วัน": { code: "30d", price: 150, duration: "30 วัน", days: 30 },
+      "1 วัน (ProMax)": { code: "1d_promax", price: 59, duration: "24 ชั่วโมง", days: 1 },
+      "7 วัน (ProMax)": { code: "7d_promax", price: 149, duration: "7 วัน", days: 7 },
+      "30 วัน (ProMax)": { code: "30d_promax", price: 299, duration: "30 วัน", days: 30 }
     };
     const codeToPlanName = {
       "1d": "1 วัน",
       "7d": "7 วัน",
-      "30d": "30 วัน"
+      "30d": "30 วัน",
+      "1d_promax": "1 วัน (ProMax)",
+      "7d_promax": "7 วัน (ProMax)",
+      "30d_promax": "30 วัน (ProMax)"
     };
 
     const els = {
@@ -2166,6 +2176,13 @@
       const versionText = downloadInfo && downloadInfo.version ? downloadInfo.version : "";
       downloadContainer.innerHTML = `
         <div class="download-card" style="display: flex; flex-direction: column; gap: 16px; align-items: flex-start; padding: 24px;">
+          <div id="update-warning-popup" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; padding: 12px 16px; width: 100%; display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px;">
+            <span style="color: #ef4444; font-size: 18px; line-height: 1;">⚠️</span>
+            <div style="flex: 1; font-size: 13px; color: #fca5a5; line-height: 1.4; text-align: left;">
+              <strong>ประกาศแจ้งอัปเดต (V1.1.0 Premium):</strong> ระบบส่งหัวใจ และระบบสุ่ม/ย่อยสมบัติที่เพิ่มเข้ามาใหม่นั้นยังอยู่ในช่วงพัฒนา (Beta) และยังไม่สมบูรณ์ 100% โปรดระมัดระวังในการใช้งาน (แนะนำให้ล็อก ⭐ สมบัติที่ต้องการรักษาก่อนรันบอทเสมอ)
+            </div>
+            <button onclick="document.getElementById('update-warning-popup').style.display='none'" style="background: none; border: none; color: #fca5a5; cursor: pointer; font-size: 18px; padding: 0 4px; line-height: 1;">&times;</button>
+          </div>
           <div style="display: flex; align-items: center; gap: 16px; width: 100%;">
             <img src="assets/app_icon.png" alt="JL Bot Cookie icon" style="width: 56px; height: 56px;">
             <div>
@@ -2285,6 +2302,7 @@
         btnBuyTabProMax.classList.remove("active");
         buyPremiumPanel.style.display = "block";
         buyProMaxPanel.style.display = "none";
+        selectPlan("7 วัน");
       });
 
       btnBuyTabProMax.addEventListener("click", () => {
@@ -2292,6 +2310,7 @@
         btnBuyTabPremium.classList.remove("active");
         buyProMaxPanel.style.display = "block";
         buyPremiumPanel.style.display = "none";
+        selectPlan("7 วัน (ProMax)");
       });
     }
     const btnCopyAcc = document.getElementById("btn-copy-acc");

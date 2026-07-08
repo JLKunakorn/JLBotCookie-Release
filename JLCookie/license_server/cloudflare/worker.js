@@ -53,6 +53,13 @@ function cleanCode(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+const TIERS = ["premium", "promax"];
+
+function resolveTier(value) {
+  const raw = cleanText(value, "premium").toLowerCase();
+  return TIERS.includes(raw) ? raw : "premium";
+}
+
 function cleanText(value, fallback = "") {
   return String(value || fallback).trim();
 }
@@ -84,11 +91,23 @@ function zipUrlFromDownloadUrl(value) {
   }
 }
 
-function releaseDownloadInfo(env) {
+function releaseDownloadInfo(env, tier = "premium") {
+  if (tier === "promax") {
+    const downloadUrl = cleanText(env.PROMAX_DOWNLOAD_URL || env.DOWNLOAD_URL);
+    const zipUrl = cleanText(env.PROMAX_ZIP_URL || env.ZIP_URL) || zipUrlFromDownloadUrl(downloadUrl);
+    return {
+      version: env.PROMAX_APP_VERSION || "V1.1.0 ProMax",
+      download_url: downloadUrl,
+      download_name: fileNameFromUrl(downloadUrl, "(Beta)JLBotPromax.exe"),
+      zip_url: zipUrl,
+      zip_name: fileNameFromUrl(zipUrl, "(Beta)JLBotPromax.zip"),
+    };
+  }
+
   const downloadUrl = cleanText(env.DOWNLOAD_URL);
   const zipUrl = cleanText(env.ZIP_URL) || zipUrlFromDownloadUrl(downloadUrl);
   return {
-    version: env.APP_VERSION || "V1.0 Premium",
+    version: env.APP_VERSION || "V1.1.0 Premium",
     download_url: downloadUrl,
     download_name: fileNameFromUrl(downloadUrl, "JLmain_Premium.exe"),
     zip_url: zipUrl,
@@ -224,16 +243,21 @@ async function verifyPassword(password, stored) {
 }
 
 const SHOP_PLANS = {
-  "1d": { code: "1d", label: "1 วัน", duration_days: 1, amount: 10, max_seats: 1 },
-  "7d": { code: "7d", label: "7 วัน", duration_days: 7, amount: 50, max_seats: 1 },
-  "30d": { code: "30d", label: "30 วัน", duration_days: 30, amount: 150, max_seats: 1 },
+  "1d": { code: "1d", label: "Premium 1 วัน", duration_days: 1, amount: 10, max_seats: 1, tier: "premium" },
+  "7d": { code: "7d", label: "Premium 7 วัน", duration_days: 7, amount: 50, max_seats: 1, tier: "premium" },
+  "30d": { code: "30d", label: "Premium 30 วัน", duration_days: 30, amount: 150, max_seats: 1, tier: "premium" },
+  "1d_promax": { code: "1d_promax", label: "ProMax 1 วัน", duration_days: 1, amount: 59, max_seats: 1, tier: "promax" },
+  "7d_promax": { code: "7d_promax", label: "ProMax 7 วัน", duration_days: 7, amount: 149, max_seats: 1, tier: "promax" },
+  "30d_promax": { code: "30d_promax", label: "ProMax 30 วัน", duration_days: 30, amount: 299, max_seats: 1, tier: "promax" },
 };
 
 function resolveShopPlan(value) {
   const raw = cleanText(value, "7d").toLowerCase();
-  if (raw.includes("30")) return SHOP_PLANS["30d"];
-  if (raw.includes("1") && !raw.includes("7") && !raw.includes("30")) return SHOP_PLANS["1d"];
-  return SHOP_PLANS[raw] || SHOP_PLANS["7d"];
+  if (SHOP_PLANS[raw]) return SHOP_PLANS[raw];
+  const isPromax = raw.includes("promax");
+  if (raw.includes("30")) return isPromax ? SHOP_PLANS["30d_promax"] : SHOP_PLANS["30d"];
+  if (raw.includes("1")) return isPromax ? SHOP_PLANS["1d_promax"] : SHOP_PLANS["1d"];
+  return isPromax ? SHOP_PLANS["7d_promax"] : SHOP_PLANS["7d"];
 }
 
 function orderId() {
@@ -295,6 +319,7 @@ function keyReply(row) {
   return {
     code: row.code,
     plan: row.plan,
+    tier: row.tier || "premium",
     duration_days: row.duration_days,
     expires_at: row.expires_at,
     max_seats: row.max_seats,
@@ -334,7 +359,7 @@ function shopOrderReply(row, includeSlip = false) {
 async function findDeliveredByOrder(env, orderId) {
   if (!orderId) return null;
   return env.DB.prepare(
-    `SELECT code, plan, duration_days, expires_at, max_seats, revoked, status,
+    `SELECT code, plan, tier, duration_days, expires_at, max_seats, revoked, status,
             delivered_at, order_id, customer_ref
      FROM lic_keys
      WHERE order_id = ?`,
@@ -343,7 +368,7 @@ async function findDeliveredByOrder(env, orderId) {
 
 async function markDelivered(env, code, orderId, customerRef, now) {
   const row = await env.DB.prepare(
-    `SELECT code, plan, duration_days, expires_at, max_seats, revoked, status,
+    `SELECT code, plan, tier, duration_days, expires_at, max_seats, revoked, status,
             delivered_at, order_id, customer_ref
      FROM lic_keys
      WHERE code = ?`,
@@ -371,7 +396,7 @@ async function markDelivered(env, code, orderId, customerRef, now) {
   return { ok: true, row: delivered, reused: false };
 }
 
-async function deliverStockKey(env, plan, durationDays, maxSeats, orderIdValue, customerRef, now) {
+async function deliverStockKey(env, plan, durationDays, maxSeats, orderIdValue, customerRef, now, tier = "premium") {
   const existing = await findDeliveredByOrder(env, orderIdValue);
   if (existing) return { ok: true, reused: true, row: existing };
 
@@ -384,9 +409,10 @@ async function deliverStockKey(env, plan, durationDays, maxSeats, orderIdValue, 
          AND plan = ?
          AND duration_days = ?
          AND max_seats = ?
+         AND tier = ?
        ORDER BY created_at ASC
        LIMIT 1`,
-    ).bind(plan, durationDays, maxSeats).first();
+    ).bind(plan, durationDays, maxSeats, resolveTier(tier)).first();
 
     if (!candidate) return { ok: false, status: 409, msg: "คีย์ในสต็อกหมด" };
 
@@ -406,13 +432,13 @@ async function verify(req, env) {
   const code = cleanCode(body.key);
   const hwid = cleanText(body.hwid);
   const now = Math.floor(Date.now() / 1000);
-  const releaseInfo = releaseDownloadInfo(env);
+  const releaseInfo = releaseDownloadInfo(env, row.tier || "premium");
   const deny = (msg) => signPayload(env, { ok: false, msg, hwid, iat: now });
 
   if (!code || !hwid) return deny("ข้อมูลคีย์/HWID ไม่ครบ");
 
   const row = await env.DB.prepare(
-    `SELECT code, plan, duration_days, expires_at, max_seats, revoked, status, delivered_at
+    `SELECT code, plan, tier, duration_days, expires_at, max_seats, revoked, status, delivered_at
      FROM lic_keys
      WHERE code = ?`,
   ).bind(code).first();
@@ -451,7 +477,10 @@ async function verify(req, env) {
     ok: true,
     code,
     plan: row.plan,
+    // "tier" stays "pro" for backward compatibility with already-shipped clients
+    // that gate on tier === "pro". Real Premium/Promax tier is in "key_tier".
     tier: "pro",
+    key_tier: row.tier || "premium",
     exp: row.expires_at,
     delivered_at: row.delivered_at,
     hwid,
@@ -469,6 +498,7 @@ async function mint(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const body = await readJson(req);
   const plan = cleanText(body.plan, "7d");
+  const tier = resolveTier(body.tier);
   const durationDays = resolveDurationDays(body, 7);
   const count = clampInt(body.count, 1, 1, 200);
   const maxSeats = clampInt(body.max_seats, 1, 1, 5);
@@ -480,20 +510,21 @@ async function mint(req, env) {
     const code = makeCode(prefix);
     await env.DB.prepare(
       `INSERT INTO lic_keys(
-         code, plan, duration_days, expires_at, max_seats, revoked, status,
+         code, plan, tier, duration_days, expires_at, max_seats, revoked, status,
          delivered_at, order_id, customer_ref, created_at, note
        )
-       VALUES(?, ?, ?, NULL, ?, 0, 'stock', NULL, NULL, NULL, ?, ?)`,
-    ).bind(code, plan, durationDays, maxSeats, now, cleanText(body.note)).run();
+       VALUES(?, ?, ?, ?, NULL, ?, 0, 'stock', NULL, NULL, NULL, ?, ?)`,
+    ).bind(code, plan, tier, durationDays, maxSeats, now, cleanText(body.note)).run();
     codes.push(code);
   }
-  return json({ ok: true, status: "stock", codes });
+  return json({ ok: true, status: "stock", tier, codes });
 }
 
 async function deliver(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const body = await readJson(req);
   const plan = cleanText(body.plan, "7d");
+  const tier = resolveTier(body.tier);
   const durationDays = resolveDurationDays(body, 7);
   const maxSeats = clampInt(body.max_seats, 1, 1, 5);
   const orderId = cleanText(body.order_id);
@@ -502,7 +533,7 @@ async function deliver(req, env) {
 
   if (!orderId) return json({ ok: false, msg: "กรุณาใส่เลขออเดอร์" }, 400);
 
-  const result = await deliverStockKey(env, plan, durationDays, maxSeats, orderId, customerRef, now);
+  const result = await deliverStockKey(env, plan, durationDays, maxSeats, orderId, customerRef, now, tier);
   if (!result.ok) return json({ ok: false, msg: result.msg }, result.status || 409);
   return json({ ok: true, reused: result.reused, key: keyReply(result.row) });
 }
@@ -547,11 +578,11 @@ async function resetSeats(req, env) {
 async function stock(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const rows = await env.DB.prepare(
-    `SELECT plan, duration_days, max_seats, COUNT(*) AS count
+    `SELECT plan, tier, duration_days, max_seats, COUNT(*) AS count
      FROM lic_keys
      WHERE status = 'stock' AND revoked = 0
-     GROUP BY plan, duration_days, max_seats
-     ORDER BY plan, duration_days, max_seats`,
+     GROUP BY plan, tier, duration_days, max_seats
+     ORDER BY tier, plan, duration_days, max_seats`,
   ).all();
   return json({ ok: true, stock: rows.results || [] });
 }
@@ -559,7 +590,7 @@ async function stock(req, env) {
 async function listKeys(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const rows = await env.DB.prepare(
-    `SELECT lic_keys.code, lic_keys.plan, lic_keys.duration_days, lic_keys.expires_at,
+    `SELECT lic_keys.code, lic_keys.plan, lic_keys.tier, lic_keys.duration_days, lic_keys.expires_at,
             lic_keys.max_seats, lic_keys.revoked, lic_keys.status, lic_keys.delivered_at,
             lic_keys.order_id, lic_keys.customer_ref, lic_keys.created_at, lic_keys.note,
             COUNT(lic_seats.hwid) AS seat_count
@@ -710,7 +741,8 @@ async function createOrder(req, env) {
       Number(plan.max_seats || 1),
       id,
       customerRef,
-      now
+      now,
+      plan.tier
     );
     if (deliverResult.ok) {
       status = "delivered";
@@ -775,7 +807,6 @@ async function myOrders(req, env) {
 async function downloadInfo(req, env) {
   const user = await requireUser(req, env);
   if (!user) return authRequired();
-  const releaseInfo = releaseDownloadInfo(env);
   const row = await env.DB.prepare(
     `SELECT shop_orders.*, shop_users.username
      FROM shop_orders
@@ -785,6 +816,9 @@ async function downloadInfo(req, env) {
      LIMIT 1`,
   ).bind(user.id).first();
   if (!row) return json({ ok: false, msg: "ยังไม่มีออเดอร์ที่อนุมัติแล้ว" }, 403);
+  const isPromax = row.plan && row.plan.includes("promax");
+  const tier = isPromax ? "promax" : "premium";
+  const releaseInfo = releaseDownloadInfo(env, tier);
   return json({
     ok: true,
     version: releaseInfo.version,
@@ -839,6 +873,7 @@ async function approveShopOrder(req, env) {
   if (order.status === "delivered" && order.key_code) return json({ ok: true, reused: true, order: shopOrderReply(order) });
   if (order.status === "rejected") return json({ ok: false, msg: "ออเดอร์นี้ถูกปฏิเสธแล้ว" }, 409);
 
+  const tier = resolveTier(body.tier);
   const result = await deliverStockKey(
     env,
     order.plan,
@@ -847,6 +882,7 @@ async function approveShopOrder(req, env) {
     order.id,
     order.customer_ref || order.username,
     now,
+    tier
   );
   if (!result.ok) return json({ ok: false, msg: result.msg }, result.status || 409);
 
@@ -1061,6 +1097,16 @@ function adminPage() {
     .pill.expired { color: var(--berry); }
     .pill.active_on_first_use { color: #f59e0b; border-color: #f59e0b; }
     .mini { min-height: 26px; padding: 0 8px; font-size: 12px; }
+    .mini-select {
+      height: 26px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--input);
+      color: var(--text);
+      padding: 0 4px;
+      font-size: 12px;
+      outline: none;
+    }
     @media (max-width: 900px) {
       .span4, .span6, .span8 { grid-column: span 12; }
       .row, .row3, .toolbar, .metrics { grid-template-columns: 1fr; }
@@ -1124,9 +1170,10 @@ function adminPage() {
 
       <section class="card span4">
         <h2>สร้างสต็อกคีย์</h2>
-        <div class="row">
+        <div class="row3">
           <div><label>แพ็ก</label><input id="mintPlan" value="7d"></div>
           <div><label>จำนวนคีย์</label><input id="mintCount" type="number" min="1" max="200" value="10"></div>
+          <div><label>เทียร์ (Tier)</label><select id="mintTier"><option value="premium">Premium</option><option value="promax">Promax</option></select></div>
         </div>
         <div class="row3">
           <div><label>หน่วยเวลา</label><select id="mintDurationType"><option value="days">วัน</option><option value="minutes">นาที</option></select></div>
@@ -1143,9 +1190,10 @@ function adminPage() {
           <div><label>แพ็ก</label><input id="deliverPlan" value="7d"></div>
           <div><label>จำนวนเครื่อง</label><input id="deliverSeats" type="number" min="1" max="5" value="1"></div>
         </div>
-        <div class="row">
+        <div class="row3">
           <div><label>หน่วยเวลา</label><select id="deliverDurationType"><option value="days">วัน</option><option value="minutes">นาที</option></select></div>
           <div><label>ระยะเวลา</label><input id="deliverDuration" type="number" min="1" value="7"></div>
+          <div><label>เทียร์ (Tier)</label><select id="deliverTier"><option value="premium">Premium</option><option value="promax">Promax</option></select></div>
         </div>
         <label>เลขออเดอร์</label><input id="deliverOrder" placeholder="ORDER-1001">
         <label>ลูกค้า</label><input id="deliverCustomer" placeholder="LINE / ชื่อลูกค้า / หมายเหตุ">
@@ -1171,7 +1219,7 @@ function adminPage() {
 
       <section class="card span4">
         <h2>สร้างคีย์ฟรี (เริ่มนับเมื่อเริ่มใช้)</h2>
-        <div class="row">
+        <div class="row3">
           <div>
             <label>ระยะเวลา</label>
             <select id="freePlan">
@@ -1183,6 +1231,13 @@ function adminPage() {
           <div>
             <label>จำนวนเครื่อง</label>
             <input id="freeSeats" type="number" min="1" max="5" value="1">
+          </div>
+          <div>
+            <label>เทียร์ (Tier)</label>
+            <select id="freeTier">
+              <option value="premium">Premium</option>
+              <option value="promax">Promax</option>
+            </select>
           </div>
         </div>
         <label>หมายเหตุ</label>
@@ -1402,7 +1457,9 @@ function customerBlock(row) {
 }
 
 function planBlock(row) {
-  return '<div><b>' + esc(row.plan || "-") + '</b><br><span class="detail">' + durationLabel(row.duration_days) + '</span></div>';
+  const tierColor = row.tier === "promax" ? "var(--gold)" : "var(--muted)";
+  const tierLabel = String(row.tier || "premium").toUpperCase();
+  return '<div><b>' + esc(row.plan || "-") + '</b> <span style="font-size:10px; font-weight:bold; color:' + tierColor + '">[' + tierLabel + ']</span><br><span class="detail">' + durationLabel(row.duration_days) + '</span></div>';
 }
 
 function seatBlock(row) {
@@ -1507,6 +1564,7 @@ function renderOrders() {
       '<button class="mini secondary" data-slip="' + esc(r.id) + '">ดูสลิป</button>',
     ];
     if (["pending_review", "payment_verified"].includes(r.status)) {
+      actions.push('<select class="mini-select" id="approveTier-' + esc(r.id) + '"><option value="premium">Premium</option><option value="promax">Promax</option></select>');
       actions.push('<button class="mini ok" data-approve="' + esc(r.id) + '">อนุมัติ</button>');
       actions.push('<button class="mini danger" data-reject="' + esc(r.id) + '">ไม่ผ่าน</button>');
     }
@@ -1574,11 +1632,13 @@ $("ordersBody").onclick = async (ev) => {
     return;
   }
   if (approveId) {
-    const data = await postJson("/api/admin/shop-orders/approve", { order_id: approveId }).catch((e) => ({ error: e.message }));
+    const tierSel = document.getElementById("approveTier-" + approveId);
+    const tierVal = tierSel ? tierSel.value : "premium";
+    const data = await postJson("/api/admin/shop-orders/approve", { order_id: approveId, tier: tierVal }).catch((e) => ({ error: e.message }));
     if (data.error) return setStatus(data.error, false);
     const copied = data.key && data.key.code ? await copyText(data.key.code).catch(() => false) : false;
     await refresh();
-    setStatus("อนุมัติออเดอร์แล้ว: " + approveId + (data.key ? " · " + data.key.code : "") + (copied ? " · คัดลอกแล้ว" : ""), true);
+    setStatus("อนุมัติออเดอร์แล้ว: " + approveId + " (" + tierVal.toUpperCase() + ")" + (data.key ? " · " + data.key.code : "") + (copied ? " · คัดลอกแล้ว" : ""), true);
     return;
   }
   if (rejectId) {
@@ -1600,6 +1660,7 @@ $("mintBtn").onclick = async () => {
     plan: $("mintPlan").value.trim(),
     count: Number($("mintCount").value || 1),
     max_seats: Number($("mintSeats").value || 1),
+    tier: $("mintTier").value,
     note: $("mintNote").value.trim(),
   }, durationBody("mintDurationType", "mintDuration"));
   const data = await postJson("/api/admin/mint", body).catch((e) => ({ error: e.message }));
@@ -1614,6 +1675,7 @@ $("deliverBtn").onclick = async () => {
     max_seats: Number($("deliverSeats").value || 1),
     order_id: $("deliverOrder").value.trim(),
     customer_ref: $("deliverCustomer").value.trim(),
+    tier: $("deliverTier").value,
   }, durationBody("deliverDurationType", "deliverDuration"));
   const data = await postJson("/api/admin/deliver", body).catch((e) => ({ error: e.message }));
   if (data.error) return setStatus(data.error, false);
@@ -1693,6 +1755,7 @@ $("freeBtn").onclick = async () => {
   const plan = $("freePlan").value;
   const max_seats = Number($("freeSeats").value || 1);
   const note = $("freeNote").value.trim() || "Free Key";
+  const tier = $("freeTier").value;
 
   const durationDaysMap = {
     "1d": 1,
@@ -1704,7 +1767,8 @@ $("freeBtn").onclick = async () => {
     plan: plan,
     duration_days: durationDaysMap[plan] || 7,
     max_seats: max_seats,
-    note: note
+    note: note,
+    tier: tier
   };
 
   $("freeResult").textContent = "กำลังสร้าง...";
