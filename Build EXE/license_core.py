@@ -28,6 +28,8 @@ APP_NAME = "JLmain"
 CONFIG_NAME = "license_config.json"
 STATE_NAME = "license_state.json"
 
+CLIENT_VERSION = ""
+
 DEFAULT_CONFIG = {
     "required": False,
     "api_url": "",
@@ -225,7 +227,7 @@ def verify_key(key_string=None):
     try:
         resp = _post_json(
             cfg["api_url"],
-            {"key": key, "hwid": get_hwid(), "app": APP_NAME},
+            {"key": key, "hwid": get_hwid(), "app": APP_NAME, "client_version": CLIENT_VERSION},
             int(cfg.get("request_timeout_seconds") or 8),
         )
         payload = _verify_signed_response(resp, cfg)

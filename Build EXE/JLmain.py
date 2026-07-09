@@ -16,6 +16,7 @@ import license_core
 
 APP_NAME = "JLmain"
 APP_DISPLAY_VERSION = "V1.1.1 Premium"
+license_core.CLIENT_VERSION = APP_DISPLAY_VERSION
 RELEASE_MODE = bool(getattr(sys, "frozen", False))
 
 BG = "#2B1D14"
@@ -425,18 +426,38 @@ class JLMainApp:
                                 percent_str = f"กำลังดาวน์โหลด... {int(percent * 100)}%"
                                 self.root.after(0, lambda s=percent_str: status_label.configure(text=s))
 
+                MIN_EXE_SIZE = 1_000_000
+                with open(temp_exe_path, "rb") as f:
+                    header = f.read(2)
+                file_size = os.path.getsize(temp_exe_path)
+                if header != b"MZ" or file_size < MIN_EXE_SIZE:
+                    try:
+                        os.remove(temp_exe_path)
+                    except Exception:
+                        pass
+                    self.root.after(0, lambda: status_label.configure(
+                        text="ไฟล์อัปเดตไม่สมบูรณ์ ยกเลิกการติดตั้ง กรุณาลองใหม่ภายหลัง", text_color=BERRY))
+                    self.root.after(0, lambda: popup.protocol("WM_DELETE_WINDOW", popup.destroy))
+                    return
+
                 self.root.after(0, lambda: status_label.configure(text="เสร็จสมบูรณ์! กำลังติดตั้งและเปิดโปรแกรมใหม่..."))
                 time.sleep(1.0)
 
+                backup_exe_path = os.path.join(
+                    exe_dir,
+                    f"{os.path.splitext(os.path.basename(target_exe_path))[0]}_old_backup.exe",
+                )
                 bat_content = f"""@echo off
 chcp 65001 > nul
 cd /d "{exe_dir}"
 :loop
-del "{target_exe_path}"
+if not exist "{target_exe_path}" goto swap
+move /y "{target_exe_path}" "{backup_exe_path}"
 if exist "{target_exe_path}" (
     timeout /t 1 /nobreak > nul
     goto loop
 )
+:swap
 if exist "{final_exe_name}" del /f /q "{final_exe_name}"
 rename "{temp_exe_path}" "{final_exe_name}"
 timeout /t 2 /nobreak > nul
