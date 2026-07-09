@@ -836,7 +836,7 @@ async function downloadInfo(req, env) {
   const isPromax = row.key_tier === "promax" || (row.plan && row.plan.includes("promax"));
   const tier = isPromax ? "promax" : "premium";
   const releaseInfo = releaseDownloadInfo(env, tier);
-  return json({
+  const resp = {
     ok: true,
     version: releaseInfo.version,
     download_url: releaseInfo.download_url,
@@ -844,7 +844,19 @@ async function downloadInfo(req, env) {
     zip_url: releaseInfo.zip_url,
     zip_name: releaseInfo.zip_name,
     order: shopOrderReply(row),
-  });
+  };
+  // ProMax เป็น tier สูงกว่า -> เข้าถึง Premium ได้ด้วย แนบข้อมูลโหลด Premium เพิ่ม
+  if (isPromax) {
+    const premium = releaseDownloadInfo(env, "premium");
+    resp.premium_download = {
+      version: premium.version,
+      download_url: premium.download_url,
+      download_name: premium.download_name,
+      zip_url: premium.zip_url,
+      zip_name: premium.zip_name,
+    };
+  }
+  return json(resp);
 }
 
 async function listShopOrders(req, env) {

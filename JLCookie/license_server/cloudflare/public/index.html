@@ -2235,6 +2235,31 @@
       } else {
         downloadButtons = `<a class="btn green" href="${esc(downloadUrl)}" download="${esc(exeName)}" style="${btnBase}">ดาวน์โหลด (.EXE)</a>` + zipBtn;
       }
+      // ProMax เข้าถึง Premium ได้ด้วย -> การ์ดดาวน์โหลด Premium เพิ่ม
+      let premiumCardHtml = "";
+      const pd = downloadInfo && downloadInfo.premium_download;
+      if (pd && (pd.download_url || pd.zip_url)) {
+        const pExe = pd.download_url || "";
+        const pZip = pd.zip_url || zipUrlFromDownloadUrl(pExe);
+        const pExeName = pd.download_name || fileNameFromUrl(pExe, "JLmain_Premium.exe");
+        const pZipName = pd.zip_name || fileNameFromUrl(pZip, "JLmain_Premium.zip");
+        const pVer = pd.version || "";
+        const pZipBtn = pZip ? `<a class="btn" href="${esc(pZip)}" download="${esc(pZipName)}" style="${btnBase} background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border);">ดาวน์โหลด (.ZIP)</a>` : "";
+        const pBtns = pExe
+          ? `<a class="btn green" href="${esc(pExe)}" download="${esc(pExeName)}" style="${btnBase}">ดาวน์โหลด (.EXE)</a>` + pZipBtn
+          : (pZip ? `<a class="btn green" href="${esc(pZip)}" download="${esc(pZipName)}" style="${btnBase}">ดาวน์โหลด (.ZIP)</a>` : `<span class="pill amber">รอเพิ่มลิงก์</span>`);
+        premiumCardHtml = `
+        <div class="download-card" style="display: flex; flex-direction: column; gap: 12px; align-items: flex-start; padding: 20px; margin-top: 16px;">
+          <div style="display: flex; align-items: center; gap: 12px; width: 100%;">
+            <img src="assets/app_icon.png" alt="icon" style="width: 44px; height: 44px; opacity: 0.85;">
+            <div>
+              <h3 style="margin: 0; font-size: 15px;">JL BOT Premium${pVer ? ` <span style="opacity:0.6; font-weight:400;">(${esc(pVer)})</span>` : ""}</h3>
+              <p style="margin: 3px 0 0; opacity: 0.65; font-size: 12px;">สิทธิ์ ProMax ของคุณเข้าถึง Premium ได้ด้วย</p>
+            </div>
+          </div>
+          <div style="display: flex; gap: 12px; width: 100%;">${pBtns}</div>
+        </div>`;
+      }
       downloadContainer.innerHTML = `
         <div class="download-card" style="display: flex; flex-direction: column; gap: 16px; align-items: flex-start; padding: 24px;">
           <div id="update-warning-popup" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; padding: 12px 16px; width: 100%; display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px;">
@@ -2255,6 +2280,7 @@
             ${downloadButtons}
           </div>
         </div>
+        ${premiumCardHtml}
       `;
     }
 
