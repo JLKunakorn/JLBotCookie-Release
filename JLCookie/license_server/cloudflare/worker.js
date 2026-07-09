@@ -432,7 +432,6 @@ async function verify(req, env) {
   const code = cleanCode(body.key);
   const hwid = cleanText(body.hwid);
   const now = Math.floor(Date.now() / 1000);
-  const releaseInfo = releaseDownloadInfo(env, row.tier || "premium");
   const deny = (msg) => signPayload(env, { ok: false, msg, hwid, iat: now });
 
   if (!code || !hwid) return deny("ข้อมูลคีย์/HWID ไม่ครบ");
@@ -461,6 +460,7 @@ async function verify(req, env) {
   if (row.status !== "delivered" || !row.expires_at) return deny("คีย์นี้ยังไม่ได้ถูกส่งจากร้าน");
   if (now > row.expires_at) return deny("คีย์หมดอายุ");
 
+  const releaseInfo = releaseDownloadInfo(env, row.tier || "premium");
   const seatRows = await env.DB.prepare("SELECT hwid FROM lic_seats WHERE code = ?").bind(code).all();
   const seats = (seatRows.results || []).map((r) => r.hwid);
   if (!seats.includes(hwid) && seats.length >= Number(row.max_seats || 1)) {
@@ -807,16 +807,22 @@ async function myOrders(req, env) {
 async function downloadInfo(req, env) {
   const user = await requireUser(req, env);
   if (!user) return authRequired();
+  const now = Math.floor(Date.now() / 1000);
   const row = await env.DB.prepare(
-    `SELECT shop_orders.*, shop_users.username
+    `SELECT shop_orders.*, shop_users.username, lic_keys.tier AS key_tier
      FROM shop_orders
      JOIN shop_users ON shop_users.id = shop_orders.user_id
+     LEFT JOIN lic_keys ON lic_keys.code = shop_orders.key_code
      WHERE shop_orders.user_id = ? AND shop_orders.status = 'delivered'
-     ORDER BY shop_orders.approved_at DESC
+       AND (lic_keys.expires_at IS NULL OR lic_keys.expires_at > ?)
+     ORDER BY
+       CASE WHEN lic_keys.tier = 'promax' OR shop_orders.plan LIKE '%promax%' THEN 0 ELSE 1 END,
+       shop_orders.approved_at DESC
      LIMIT 1`,
-  ).bind(user.id).first();
+  ).bind(user.id, now).first();
   if (!row) return json({ ok: false, msg: "ยังไม่มีออเดอร์ที่อนุมัติแล้ว" }, 403);
-  const isPromax = row.plan && row.plan.includes("promax");
+  // ยึด tier ของคีย์จริงก่อน (เผื่อกรณี admin จ่ายคีย์ promax ให้ออเดอร์ที่ชื่อ plan ไม่มี promax)
+  const isPromax = row.key_tier === "promax" || (row.plan && row.plan.includes("promax"));
   const tier = isPromax ? "promax" : "premium";
   const releaseInfo = releaseDownloadInfo(env, tier);
   return json({
@@ -920,6 +926,7 @@ async function generateFreeKey(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const body = await readJson(req);
   const plan = cleanText(body.plan, "7d");
+  const tier = resolveTier(body.tier);
   const durationDays = Number(body.duration_days || 7);
   const maxSeats = Number(body.max_seats || 1);
   const note = cleanText(body.note, "Free Key").slice(0, 300);
@@ -928,13 +935,13 @@ async function generateFreeKey(req, env) {
 
   await env.DB.prepare(
     `INSERT INTO lic_keys(
-       code, plan, duration_days, expires_at, max_seats, revoked, status,
+       code, plan, tier, duration_days, expires_at, max_seats, revoked, status,
        delivered_at, order_id, customer_ref, created_at, note
      )
-     VALUES(?, ?, ?, NULL, ?, 0, 'active_on_first_use', NULL, NULL, 'Free Key', ?, ?)`
-  ).bind(code, plan, durationDays, maxSeats, now, note).run();
+      VALUES(?, ?, ?, ?, NULL, ?, 0, 'active_on_first_use', NULL, NULL, 'Free Key', ?, ?)`
+  ).bind(code, plan, tier, durationDays, maxSeats, now, note).run();
 
-  return json({ ok: true, code });
+  return json({ ok: true, code, tier });
 }
 
 function html(body) {
