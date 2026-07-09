@@ -94,13 +94,12 @@ function zipUrlFromDownloadUrl(value) {
 function releaseDownloadInfo(env, tier = "premium") {
   if (tier === "promax") {
     const downloadUrl = cleanText(env.PROMAX_DOWNLOAD_URL || env.DOWNLOAD_URL);
-    const zipUrl = cleanText(env.PROMAX_ZIP_URL || env.ZIP_URL) || zipUrlFromDownloadUrl(downloadUrl);
     return {
       version: env.PROMAX_APP_VERSION || "V1.1.0 ProMax",
       download_url: downloadUrl,
       download_name: fileNameFromUrl(downloadUrl, "(Beta)JLBotPromax.exe"),
-      zip_url: zipUrl,
-      zip_name: fileNameFromUrl(zipUrl, "(Beta)JLBotPromax.zip"),
+      zip_url: "",
+      zip_name: "",
     };
   }
 
