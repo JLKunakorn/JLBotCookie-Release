@@ -260,6 +260,17 @@ function resolveShopPlan(value) {
   return isPromax ? SHOP_PLANS["7d_promax"] : SHOP_PLANS["7d"];
 }
 
+// คืน plan code มาตรฐานตาม tier+ระยะเวลา (เช่น tier=promax, 30 วัน -> "30d_promax")
+// กันปัญหาสต็อกถูก mint ด้วย base code ("30d") ทำให้ไม่ match กับออเดอร์/หน้าเว็บ (suffixed)
+function canonicalPlanCode(plan, tier, durationDays) {
+  const t = resolveTier(tier);
+  const dur = Number(durationDays);
+  const match = Object.values(SHOP_PLANS).find(
+    (p) => resolveTier(p.tier) === t && Number(p.duration_days) === dur,
+  );
+  return match ? match.code : cleanText(plan, "7d");
+}
+
 function orderId() {
   return `ORDER-${Date.now().toString(36).toUpperCase()}-${randomHex(2).toUpperCase()}`;
 }
@@ -497,9 +508,9 @@ async function verify(req, env) {
 async function mint(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const body = await readJson(req);
-  const plan = cleanText(body.plan, "7d");
   const tier = resolveTier(body.tier);
   const durationDays = resolveDurationDays(body, 7);
+  const plan = canonicalPlanCode(body.plan, tier, durationDays);
   const count = clampInt(body.count, 1, 1, 200);
   const maxSeats = clampInt(body.max_seats, 1, 1, 5);
   const prefix = cleanText(body.prefix, "JL").replace(/[^A-Z0-9]/gi, "").slice(0, 6).toUpperCase() || "JL";
@@ -523,9 +534,9 @@ async function mint(req, env) {
 async function deliver(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const body = await readJson(req);
-  const plan = cleanText(body.plan, "7d");
   const tier = resolveTier(body.tier);
   const durationDays = resolveDurationDays(body, 7);
+  const plan = canonicalPlanCode(body.plan, tier, durationDays);
   const maxSeats = clampInt(body.max_seats, 1, 1, 5);
   const orderId = cleanText(body.order_id);
   const customerRef = cleanText(body.customer_ref);
@@ -925,9 +936,9 @@ async function rejectShopOrder(req, env) {
 async function generateFreeKey(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const body = await readJson(req);
-  const plan = cleanText(body.plan, "7d");
   const tier = resolveTier(body.tier);
   const durationDays = Number(body.duration_days || 7);
+  const plan = canonicalPlanCode(body.plan, tier, durationDays);
   const maxSeats = Number(body.max_seats || 1);
   const note = cleanText(body.note, "Free Key").slice(0, 300);
   const now = Math.floor(Date.now() / 1000);
