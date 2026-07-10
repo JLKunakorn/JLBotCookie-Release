@@ -1510,6 +1510,17 @@
           <div class="order-list" id="orderList"></div>
         </div>
 
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>ของขวัญ</h2>
+              <p>คีย์ฟรีที่แอดมินส่งให้บัญชีนี้ แยกจากประวัติการซื้อปกติ</p>
+            </div>
+            <span class="pill green" id="giftCount">0 รายการ</span>
+          </div>
+          <div class="order-list" id="giftList"></div>
+        </div>
+
         <div class="side-stack">
           <div class="card">
             <div class="card-head">
@@ -1698,6 +1709,8 @@
       orderNote: document.getElementById("orderNote"),
       orderList: document.getElementById("orderList"),
       orderCount: document.getElementById("orderCount"),
+      giftList: document.getElementById("giftList"),
+      giftCount: document.getElementById("giftCount"),
       latestKeyBox: document.getElementById("latestKeyBox"),
       latestStatus: document.getElementById("latestStatus")
     };
@@ -1705,6 +1718,7 @@
     let selectedPlan = "7 วัน";
     let session = loadSession();
     let accountOrders = [];
+    let accountGifts = [];
     let downloadInfo = null;
     let liveActivity = [];
     let planStock = {};
@@ -1994,6 +2008,15 @@
       accountOrders = data.orders || [];
     }
 
+    async function refreshGifts() {
+      if (!session.token) {
+        accountGifts = [];
+        return;
+      }
+      const data = await api("/api/gifts");
+      accountGifts = data.gifts || [];
+    }
+
     async function refreshDownloadInfo() {
       if (!session.token) {
         downloadInfo = null;
@@ -2011,12 +2034,14 @@
         renderAccount();
         return;
       }
-      try {
-        await refreshOrders();
-      } catch (error) {
-        els.orderList.innerHTML = `<div class="empty-state">${esc(error.message)}</div>`;
-      }
+      const [ordersResult, giftsResult] = await Promise.allSettled([refreshOrders(), refreshGifts()]);
       renderAccount();
+      if (ordersResult.status === "rejected") {
+        els.orderList.innerHTML = `<div class="empty-state">${esc(ordersResult.reason.message)}</div>`;
+      }
+      if (giftsResult.status === "rejected") {
+        els.giftList.innerHTML = `<div class="empty-state">${esc(giftsResult.reason.message)}</div>`;
+      }
     }
 
     function goToStep(step) {
@@ -2096,6 +2121,8 @@
       if (!user) {
         els.orderCount.textContent = "ยังไม่ได้เข้าสู่ระบบ";
         els.orderList.innerHTML = `<div class="empty-state">เข้าสู่ระบบเพื่อดูรายการซื้อ คีย์ และไฟล์ดาวน์โหลดของคุณ</div>`;
+        els.giftCount.textContent = "ยังไม่ได้เข้าสู่ระบบ";
+        els.giftList.innerHTML = `<div class="empty-state">เข้าสู่ระบบเพื่อดูของขวัญที่แอดมินส่งให้คุณ</div>`;
         els.latestStatus.textContent = "ต้องเข้าสู่ระบบ";
         els.latestStatus.className = "pill amber";
         els.latestKeyBox.innerHTML = `<div class="empty-state">ยังไม่มีข้อมูลบัญชี</div>`;
@@ -2118,6 +2145,24 @@
           </div>
         `;
       }).join("") : `<div class="empty-state">ยังไม่มีรายการซื้อ กดซื้อคีย์เพื่อเริ่มใช้งาน</div>`;
+
+      const gifts = accountGifts.slice().sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+      els.giftCount.textContent = `${gifts.length} รายการ`;
+      els.giftList.innerHTML = gifts.length ? gifts.map((gift) => {
+        const expiresText = gift.revoked
+          ? "ถูกระงับ"
+          : (gift.expires_at ? formatDate(gift.expires_at) : "เริ่มนับเมื่อเปิดใช้ในแอป");
+        return `
+          <div class="order-row">
+            <span>${esc(planLabelFromCode(gift.plan))} • ${esc(gift.duration_days)} วัน • ${esc(formatDate(gift.created_at))}</span>
+            <strong class="${gift.revoked ? "pill red" : "pill green"}">${gift.revoked ? "ระงับแล้ว" : "พร้อมใช้"}</strong>
+            <span>คีย์ของขวัญ</span>
+            <strong class="key-code">${esc(gift.code)}</strong>
+            <span>${esc(gift.note || "ของขวัญจากแอดมิน")}</span>
+            <strong>หมดอายุ: ${esc(expiresText)}</strong>
+          </div>
+        `;
+      }).join("") : `<div class="empty-state">ยังไม่มีของขวัญในบัญชีนี้</div>`;
 
       const latest = latestDeliveredOrder();
       if (!latest) {

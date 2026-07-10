@@ -831,6 +831,19 @@ async function myOrders(req, env) {
   return json({ ok: true, orders: (rows.results || []).map((row) => shopOrderReply(row)) });
 }
 
+async function myGifts(req, env) {
+  const user = await requireUser(req, env);
+  if (!user) return authRequired();
+  const rows = await env.DB.prepare(
+    `SELECT shop_gifts.*, lic_keys.expires_at, lic_keys.revoked
+     FROM shop_gifts
+     JOIN lic_keys ON lic_keys.code = shop_gifts.code
+     WHERE shop_gifts.user_id = ?
+     ORDER BY shop_gifts.created_at DESC`,
+  ).bind(user.id).all();
+  return json({ ok: true, gifts: rows.results || [] });
+}
+
 async function downloadInfo(req, env) {
   const user = await requireUser(req, env);
   if (!user) return authRequired();
@@ -961,6 +974,19 @@ async function rejectShopOrder(req, env) {
   return json({ ok: true, order_id: id });
 }
 
+async function createFreeLicenseKey(env, { tier, durationDays, plan, maxSeats, note, customerRef, prefix = "FREE" }) {
+  const now = Math.floor(Date.now() / 1000);
+  const code = makeCode(prefix);
+  await env.DB.prepare(
+    `INSERT INTO lic_keys(
+       code, plan, tier, duration_days, expires_at, max_seats, revoked, status,
+       delivered_at, order_id, customer_ref, created_at, note
+     )
+      VALUES(?, ?, ?, ?, NULL, ?, 0, 'active_on_first_use', NULL, NULL, ?, ?, ?)`
+  ).bind(code, plan, tier, durationDays, maxSeats, customerRef, now, note).run();
+  return { code, now };
+}
+
 async function generateFreeKey(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const body = await readJson(req);
@@ -969,18 +995,48 @@ async function generateFreeKey(req, env) {
   const plan = canonicalPlanCode(body.plan, tier, durationDays);
   const maxSeats = Number(body.max_seats || 1);
   const note = cleanText(body.note, "Free Key").slice(0, 300);
-  const now = Math.floor(Date.now() / 1000);
-  const code = makeCode("FREE");
+  const created = await createFreeLicenseKey(env, {
+    tier,
+    durationDays,
+    plan,
+    maxSeats,
+    note,
+    customerRef: "Free Key",
+  });
+
+  return json({ ok: true, code: created.code, tier });
+}
+
+async function sendGift(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const username = cleanText(body.username).trim();
+  if (!username) return json({ ok: false, msg: "กรุณาใส่ชื่อลูกค้า" }, 400);
+  const user = await env.DB.prepare(
+    "SELECT id, username, customer_ref FROM shop_users WHERE username = ?",
+  ).bind(username).first();
+  if (!user) return json({ ok: false, msg: "ไม่พบบัญชีลูกค้านี้" }, 400);
+
+  const tier = resolveTier(body.tier);
+  const durationDays = Number(body.duration_days || 7);
+  const plan = canonicalPlanCode(body.plan, tier, durationDays);
+  const note = cleanText(body.note, "Gift Key").slice(0, 300);
+  const customerRef = cleanText(user.customer_ref || user.username, user.username);
+  const created = await createFreeLicenseKey(env, {
+    tier,
+    durationDays,
+    plan,
+    maxSeats: 1,
+    note,
+    customerRef,
+  });
 
   await env.DB.prepare(
-    `INSERT INTO lic_keys(
-       code, plan, tier, duration_days, expires_at, max_seats, revoked, status,
-       delivered_at, order_id, customer_ref, created_at, note
-     )
-      VALUES(?, ?, ?, ?, NULL, ?, 0, 'active_on_first_use', NULL, NULL, 'Free Key', ?, ?)`
-  ).bind(code, plan, tier, durationDays, maxSeats, now, note).run();
+    `INSERT INTO shop_gifts(user_id, code, tier, plan, duration_days, note, created_at, claimed_at)
+     VALUES(?, ?, ?, ?, ?, ?, ?, NULL)`,
+  ).bind(user.id, created.code, tier, plan, durationDays, note, created.now).run();
 
-  return json({ ok: true, code, tier });
+  return json({ ok: true, code: created.code, tier, plan, duration_days: durationDays, username: user.username });
 }
 
 function html(body) {
@@ -1217,45 +1273,22 @@ function adminPage() {
       <section class="card span4">
         <h2>สร้างสต็อกคีย์</h2>
         <div class="row3">
-          <div><label>แพ็ก</label><input id="mintPlan" value="7d"></div>
+          <div>
+            <label>แพ็ก</label>
+            <select id="mintPlan">
+              <option value="1d" data-tier="premium" data-days="1">Premium 1 วัน</option>
+              <option value="7d" data-tier="premium" data-days="7">Premium 7 วัน</option>
+              <option value="30d" data-tier="premium" data-days="30">Premium 30 วัน</option>
+              <option value="1d_promax" data-tier="promax" data-days="1">ProMax 1 วัน</option>
+              <option value="7d_promax" data-tier="promax" data-days="7">ProMax 7 วัน</option>
+              <option value="30d_promax" data-tier="promax" data-days="30">ProMax 30 วัน</option>
+            </select>
+          </div>
           <div><label>จำนวนคีย์</label><input id="mintCount" type="number" min="1" max="200" value="10"></div>
-          <div><label>เทียร์ (Tier)</label><select id="mintTier"><option value="premium">Premium</option><option value="promax">Promax</option></select></div>
-        </div>
-        <div class="row3">
-          <div><label>หน่วยเวลา</label><select id="mintDurationType"><option value="days">วัน</option><option value="minutes">นาที</option></select></div>
-          <div><label>ระยะเวลา</label><input id="mintDuration" type="number" min="1" value="7"></div>
           <div><label>จำนวนเครื่อง</label><input id="mintSeats" type="number" min="1" max="5" value="1"></div>
         </div>
         <label>หมายเหตุ</label><input id="mintNote" placeholder="ไม่บังคับ">
         <div class="buttons"><button id="mintBtn">สร้างคีย์เข้าสต็อก</button></div>
-      </section>
-
-      <section class="card span4">
-        <h2>ส่งคีย์จากสต็อก</h2>
-        <div class="row">
-          <div><label>แพ็ก</label><input id="deliverPlan" value="7d"></div>
-          <div><label>จำนวนเครื่อง</label><input id="deliverSeats" type="number" min="1" max="5" value="1"></div>
-        </div>
-        <div class="row3">
-          <div><label>หน่วยเวลา</label><select id="deliverDurationType"><option value="days">วัน</option><option value="minutes">นาที</option></select></div>
-          <div><label>ระยะเวลา</label><input id="deliverDuration" type="number" min="1" value="7"></div>
-          <div><label>เทียร์ (Tier)</label><select id="deliverTier"><option value="premium">Premium</option><option value="promax">Promax</option></select></div>
-        </div>
-        <label>เลขออเดอร์</label><input id="deliverOrder" placeholder="ORDER-1001">
-        <label>ลูกค้า</label><input id="deliverCustomer" placeholder="LINE / ชื่อลูกค้า / หมายเหตุ">
-        <div class="buttons"><button id="deliverBtn">ส่งคีย์ให้ลูกค้า</button></div>
-      </section>
-
-      <section class="card span4">
-        <h2>จัดการคีย์เฉพาะ</h2>
-        <label>คีย์</label><input id="exactKey" placeholder="JL-XXXX-XXXX-XXXX-XXXX">
-        <label>เลขออเดอร์</label><input id="exactOrder" placeholder="ORDER-1001">
-        <label>ลูกค้า</label><input id="exactCustomer" placeholder="ไม่บังคับ">
-        <div class="buttons">
-          <button id="deliverExactBtn">ส่งคีย์นี้</button>
-          <button class="secondary" id="resetSeatBtn">ล้างเครื่อง</button>
-          <button class="danger" id="revokeBtn">ระงับคีย์</button>
-        </div>
       </section>
 
       <section class="card span4">
@@ -1292,6 +1325,27 @@ function adminPage() {
           <button id="freeBtn" class="ok">สร้างคีย์ฟรี</button>
         </div>
         <div id="freeResult" style="margin-top:10px; font-weight:bold; color:var(--gold); font-family:monospace; font-size:12px; text-align:center; word-break:break-all;"></div>
+      </section>
+
+      <section class="card span4">
+        <h2>ส่งของขวัญ/คีย์ฟรี</h2>
+        <label>บัญชีลูกค้า</label>
+        <input id="giftUsername" placeholder="username ที่ลูกค้าใช้ล็อกอินเว็บ">
+        <label>แพ็กของขวัญ</label>
+        <select id="giftPlan">
+          <option value="1d" data-tier="premium" data-days="1">Premium 1 วัน</option>
+          <option value="7d" data-tier="premium" data-days="7">Premium 7 วัน</option>
+          <option value="30d" data-tier="premium" data-days="30">Premium 30 วัน</option>
+          <option value="1d_promax" data-tier="promax" data-days="1">ProMax 1 วัน</option>
+          <option value="7d_promax" data-tier="promax" data-days="7">ProMax 7 วัน</option>
+          <option value="30d_promax" data-tier="promax" data-days="30">ProMax 30 วัน</option>
+        </select>
+        <label>หมายเหตุ</label>
+        <input id="giftNote" placeholder="เช่น ชดเชยปิดปรับปรุง / โปรโมชัน">
+        <div class="buttons">
+          <button id="giftBtn" class="ok">ส่งของขวัญ</button>
+        </div>
+        <div id="giftResult" style="margin-top:10px; font-weight:bold; color:var(--gold); font-family:monospace; font-size:12px; text-align:center; word-break:break-all;"></div>
       </section>
 
       <section class="card span12">
@@ -1362,13 +1416,6 @@ async function api(path, options) {
   const data = await res.json();
   if (!res.ok || data.ok === false) throw new Error(data.msg || data.error || ("HTTP " + res.status));
   return data;
-}
-
-function durationBody(typeId, valueId) {
-  const type = $(typeId).value;
-  const value = Number($(valueId).value || 0);
-  if (type === "minutes") return { duration_minutes: value };
-  return { duration_days: value };
 }
 
 function durationLabel(days) {
@@ -1512,10 +1559,6 @@ function seatBlock(row) {
   return '<span class="nowrap">' + esc(row.seat_count || 0) + '/' + esc(row.max_seats || 1) + '</span>';
 }
 
-function findKey(code) {
-  return allKeys.find((r) => r.code === code);
-}
-
 async function copyText(text) {
   if (navigator.clipboard && window.isSecureContext) {
     await navigator.clipboard.writeText(text);
@@ -1531,13 +1574,6 @@ async function copyText(text) {
   const ok = document.execCommand("copy");
   input.remove();
   return ok;
-}
-
-function fillExactForm(row) {
-  if (!row) return;
-  $("exactKey").value = row.code || "";
-  $("exactOrder").value = row.order_id || "";
-  $("exactCustomer").value = row.customer_ref || "";
 }
 
 function renderKeys() {
@@ -1704,63 +1740,19 @@ $("ordersBody").onclick = async (ev) => {
 };
 
 $("mintBtn").onclick = async () => {
-  const body = Object.assign({
-    plan: $("mintPlan").value.trim(),
+  const option = $("mintPlan").selectedOptions[0];
+  const body = {
+    plan: $("mintPlan").value,
     count: Number($("mintCount").value || 1),
     max_seats: Number($("mintSeats").value || 1),
-    tier: $("mintTier").value,
+    tier: option ? option.dataset.tier : "premium",
+    duration_days: option ? Number(option.dataset.days || 7) : 7,
     note: $("mintNote").value.trim(),
-  }, durationBody("mintDurationType", "mintDuration"));
+  };
   const data = await postJson("/api/admin/mint", body).catch((e) => ({ error: e.message }));
   if (data.error) return setStatus(data.error, false);
   await refresh();
   setStatus("สร้างคีย์แล้ว: " + data.codes.join(", "), true);
-};
-
-$("deliverBtn").onclick = async () => {
-  const body = Object.assign({
-    plan: $("deliverPlan").value.trim(),
-    max_seats: Number($("deliverSeats").value || 1),
-    order_id: $("deliverOrder").value.trim(),
-    customer_ref: $("deliverCustomer").value.trim(),
-    tier: $("deliverTier").value,
-  }, durationBody("deliverDurationType", "deliverDuration"));
-  const data = await postJson("/api/admin/deliver", body).catch((e) => ({ error: e.message }));
-  if (data.error) return setStatus(data.error, false);
-  fillExactForm(data.key);
-  const copied = await copyText(data.key.code).catch(() => false);
-  await refresh();
-  setStatus((data.reused ? "ออเดอร์นี้มีคีย์อยู่แล้ว: " : "ส่งคีย์แล้ว: ") + data.key.code + (copied ? " · คัดลอกแล้ว" : ""), true);
-};
-
-$("deliverExactBtn").onclick = async () => {
-  const data = await postJson("/api/admin/deliver-key", {
-    key: $("exactKey").value.trim(),
-    order_id: $("exactOrder").value.trim(),
-    customer_ref: $("exactCustomer").value.trim(),
-  }).catch((e) => ({ error: e.message }));
-  if (data.error) return setStatus(data.error, false);
-  fillExactForm(data.key);
-  const copied = await copyText(data.key.code).catch(() => false);
-  await refresh();
-  setStatus((data.reused ? "ออเดอร์นี้มีคีย์อยู่แล้ว: " : "ส่งคีย์แล้ว: ") + data.key.code + (copied ? " · คัดลอกแล้ว" : ""), true);
-};
-
-$("resetSeatBtn").onclick = async () => {
-  const key = $("exactKey").value.trim();
-  const data = await postJson("/api/admin/reset-seats", { key }).catch((e) => ({ error: e.message }));
-  if (data.error) return setStatus(data.error, false);
-  await refresh();
-  setStatus("ล้างเครื่องของคีย์แล้ว: " + key, true);
-};
-
-$("revokeBtn").onclick = async () => {
-  const key = $("exactKey").value.trim();
-  if (!confirm("ต้องการระงับคีย์ " + key + " ใช่ไหม?")) return;
-  const data = await postJson("/api/admin/revoke", { key }).catch((e) => ({ error: e.message }));
-  if (data.error) return setStatus(data.error, false);
-  await refresh();
-  setStatus("ระงับคีย์แล้ว: " + key, true);
 };
 
 $("keysBody").onclick = async (ev) => {
@@ -1773,18 +1765,15 @@ $("keysBody").onclick = async (ev) => {
   const resetKey = btn.getAttribute("data-reset");
   const revokeKey = btn.getAttribute("data-revoke");
   if (copyKey) {
-    fillExactForm(findKey(copyKey));
     const copied = await copyText(copyKey).catch(() => false);
     setStatus((copied ? "คัดลอกคีย์แล้ว: " : "เลือกคีย์แล้ว แต่คัดลอกไม่สำเร็จ: ") + copyKey, copied);
     return;
   }
   if (fillKey) {
-    fillExactForm(findKey(fillKey));
     setStatus("เลือกคีย์แล้ว: " + fillKey, true);
     return;
   }
   if (resetKey) {
-    fillExactForm(findKey(resetKey));
     const data = await postJson("/api/admin/reset-seats", { key: resetKey }).catch((e) => ({ error: e.message }));
     if (data.error) return setStatus(data.error, false);
     await refresh();
@@ -1792,7 +1781,6 @@ $("keysBody").onclick = async (ev) => {
     return;
   }
   if (extendKey) {
-    fillExactForm(findKey(extendKey));
     const label = extendHours === 24 ? "1 วัน" : extendHours + " ชั่วโมง";
     const data = await postJson("/api/admin/extend", { key: extendKey, hours: extendHours }).catch((e) => ({ error: e.message }));
     if (data.error) return setStatus(data.error, false);
@@ -1801,7 +1789,6 @@ $("keysBody").onclick = async (ev) => {
     return;
   }
   if (revokeKey) {
-    fillExactForm(findKey(revokeKey));
     if (!confirm("ต้องการระงับคีย์ " + revokeKey + " ใช่ไหม?")) return;
     const data = await postJson("/api/admin/revoke", { key: revokeKey }).catch((e) => ({ error: e.message }));
     if (data.error) return setStatus(data.error, false);
@@ -1845,6 +1832,31 @@ $("freeBtn").onclick = async () => {
   setStatus("สร้างคีย์ฟรีเรียบร้อย: " + data.code + (copied ? " (คัดลอกลงคลิปบอร์ดแล้ว)" : ""), true);
 };
 
+$("giftBtn").onclick = async () => {
+  const option = $("giftPlan").selectedOptions[0];
+  const body = {
+    username: $("giftUsername").value.trim(),
+    plan: $("giftPlan").value,
+    tier: option ? option.dataset.tier : "premium",
+    duration_days: option ? Number(option.dataset.days || 7) : 7,
+    note: $("giftNote").value.trim() || "Gift Key",
+  };
+
+  $("giftResult").textContent = "กำลังส่ง...";
+  const data = await postJson("/api/admin/send-gift", body).catch((e) => ({ error: e.message }));
+  if (data.error) {
+    $("giftResult").style.color = "var(--berry)";
+    $("giftResult").textContent = data.error;
+    return setStatus(data.error, false);
+  }
+
+  $("giftResult").style.color = "var(--gold)";
+  $("giftResult").textContent = "ส่งสำเร็จ: " + data.code;
+  const copied = await copyText(data.code).catch(() => false);
+  await refresh();
+  setStatus("ส่งของขวัญให้ " + data.username + " แล้ว: " + data.code + (copied ? " (คัดลอกลงคลิปบอร์ดแล้ว)" : ""), true);
+};
+
 if (adminToken) refresh().catch((e) => setStatus(e.message, false));
 </script>
 </body>
@@ -1875,10 +1887,12 @@ export default {
     if (req.method === "GET" && url.pathname === "/api/download-info") return downloadInfo(req, env);
     if (req.method === "POST" && url.pathname === "/api/orders") return createOrder(req, env);
     if (req.method === "GET" && url.pathname === "/api/orders") return myOrders(req, env);
+    if (req.method === "GET" && url.pathname === "/api/gifts") return myGifts(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/mint") return mint(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/deliver") return deliver(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/deliver-key") return deliverKey(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/generate-free-key") return generateFreeKey(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/send-gift") return sendGift(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/revoke") return revoke(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/extend") return extendKey(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/reset-seats") return resetSeats(req, env);
