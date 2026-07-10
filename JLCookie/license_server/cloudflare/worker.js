@@ -576,6 +576,23 @@ async function revoke(req, env) {
   return json({ ok: true, code });
 }
 
+async function extendKey(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const code = cleanCode(body.key);
+  if (!code) return json({ ok: false, msg: "กรุณาใส่คีย์" }, 400);
+  const hours = Number(body.hours);
+  if (![6, 24].includes(hours)) return json({ ok: false, msg: "ระยะเวลาไม่ถูกต้อง" }, 400);
+  const seconds = hours * 3600;
+  const result = await env.DB.prepare(
+    "UPDATE lic_keys SET expires_at = expires_at + ? WHERE code = ? AND expires_at IS NOT NULL"
+  ).bind(seconds, code).run();
+  if (!result.meta || result.meta.changes === 0) {
+    return json({ ok: false, msg: "คีย์นี้ยังไม่เปิดใช้งาน (ไม่มีวันหมดอายุให้ต่อ)" }, 400);
+  }
+  return json({ ok: true, code, hours });
+}
+
 async function resetSeats(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const body = await readJson(req);
@@ -1534,6 +1551,8 @@ function renderKeys() {
     const actions =
       '<button class="mini ok" data-copy="' + esc(r.code) + '">คัดลอกคีย์</button> ' +
       '<button class="mini secondary" data-fill="' + esc(r.code) + '">เลือก</button> ' +
+      '<button class="mini secondary" data-extend="' + esc(r.code) + '" data-hours="6">+6ชม.</button> ' +
+      '<button class="mini secondary" data-extend="' + esc(r.code) + '" data-hours="24">+1วัน</button> ' +
       '<button class="mini secondary" data-reset="' + esc(r.code) + '">ล้างเครื่อง</button> ' +
       '<button class="mini danger" data-revoke="' + esc(r.code) + '">ระงับ</button>';
     return '<tr>' +
@@ -1749,6 +1768,8 @@ $("keysBody").onclick = async (ev) => {
   if (!btn) return;
   const copyKey = btn.getAttribute("data-copy");
   const fillKey = btn.getAttribute("data-fill");
+  const extendKey = btn.getAttribute("data-extend");
+  const extendHours = Number(btn.getAttribute("data-hours") || 0);
   const resetKey = btn.getAttribute("data-reset");
   const revokeKey = btn.getAttribute("data-revoke");
   if (copyKey) {
@@ -1768,6 +1789,15 @@ $("keysBody").onclick = async (ev) => {
     if (data.error) return setStatus(data.error, false);
     await refresh();
     setStatus("ล้างเครื่องของคีย์แล้ว: " + resetKey, true);
+    return;
+  }
+  if (extendKey) {
+    fillExactForm(findKey(extendKey));
+    const label = extendHours === 24 ? "1 วัน" : extendHours + " ชั่วโมง";
+    const data = await postJson("/api/admin/extend", { key: extendKey, hours: extendHours }).catch((e) => ({ error: e.message }));
+    if (data.error) return setStatus(data.error, false);
+    await refresh();
+    setStatus("ต่ออายุคีย์แล้ว +" + label + ": " + extendKey, true);
     return;
   }
   if (revokeKey) {
@@ -1850,6 +1880,7 @@ export default {
     if (req.method === "POST" && url.pathname === "/api/admin/deliver-key") return deliverKey(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/generate-free-key") return generateFreeKey(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/revoke") return revoke(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/extend") return extendKey(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/reset-seats") return resetSeats(req, env);
     if (req.method === "GET" && url.pathname === "/api/admin/stock") return stock(req, env);
     if (req.method === "GET" && url.pathname === "/api/admin/keys") return listKeys(req, env);
