@@ -15,7 +15,7 @@ import license_core
 
 
 APP_NAME = "JLmain"
-APP_DISPLAY_VERSION = "V1.1.1 Premium"
+APP_DISPLAY_VERSION = "V1.2.0 Premium"
 license_core.CLIENT_VERSION = APP_DISPLAY_VERSION
 RELEASE_MODE = bool(getattr(sys, "frozen", False))
 

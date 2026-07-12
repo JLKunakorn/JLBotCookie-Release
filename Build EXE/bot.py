@@ -291,6 +291,10 @@ BTN_FRIEND_SEND_X = 663
 FRIEND_ROWS = [320, 420, 525, 620]
 FRIEND_SEND_RED_MIN = 0.025
 FRIEND_SEND_GREEN_MIN = 0.2
+FRIEND_ARROW_YELLOW_MIN = 0.06
+FRIEND_ARROW_DIFF_MIN = 0.06
+FRIEND_SELF_HILITE_MIN = 0.2
+FRIEND_ARROW_HALF = 16
 BTN_FRIEND_CONFIRM = (793, 458)
 BTN_FRIEND_CANCEL = (485, 458)
 BTN_FRIEND_SENT_OK = (640, 458)
@@ -1668,6 +1672,7 @@ def state_run():
     pattern = REPLAY_PATTERN
     jump_stop = threading.Event()
     jump_count = [0]
+    worker_loop = None
     if pattern:
         print(f'\n===== [STATE 2] RUN — โหมด PATTERN ({len(pattern)} การกด) + คอยกด relay =====')
         print('[replay] รอเข้าหน้าวิ่ง (BONUSTIME) เพื่อตั้ง t=0 ...')
@@ -1702,27 +1707,13 @@ def state_run():
                     jump_count[0] += 1
                     time.sleep(random.uniform(JUMP_DELAY_MIN, JUMP_DELAY_MAX))
         else:
-            print('\n===== [STATE 2] RUN — โหมดกดสุ่มห่างๆ (กระโดด/สไลด์ นานๆที) + คอยกด relay =====')
-            def worker_loop():
-                while not jump_stop.is_set() and (not STOP_FLAG.is_set()):
-                    if _IN_CAPTCHA_SOLVER:
-                        if _wait_while_captcha(jump_stop):
-                            return None
-                        continue
-                    end = time.time() + random.uniform(IDLE_ACTION_MIN, IDLE_ACTION_MAX)
-                    while time.time() < end:
-                        if jump_stop.is_set() or STOP_FLAG.is_set():
-                            return None
-                        time.sleep(min(0.2, max(0.0, end - time.time())))
-                    if random.random() < IDLE_SLIDE_CHANCE:
-                        threading.Thread(target=adb_slide, daemon=True).start()
-                    else:
-                        adb_tap(*_jump_point(), jitter=0)
-                    jump_count[0] += 1
+            print('\n===== [STATE 2] RUN — jump assist ปิด: ไม่กดกระโดด/สไลด์อัตโนมัติ + คอยกด relay เท่านั้น =====')
 
     start_time = time.time()
-    jt = threading.Thread(target=worker_loop, daemon=True)
-    jt.start()
+    jt = None
+    if worker_loop is not None:
+        jt = threading.Thread(target=worker_loop, daemon=True)
+        jt.start()
     last_sig = None
     last_change = time.time()
     try:
@@ -1943,7 +1934,29 @@ def _friend_send_active(screen, y, x=BTN_FRIEND_SEND_X, half=32):
     area = roi.shape[0] * roi.shape[1]
     red_ratio = float(red.sum()) / 255.0 / area
     grn_ratio = float(grn.sum()) / 255.0 / area
-    return red_ratio > FRIEND_SEND_RED_MIN and grn_ratio > FRIEND_SEND_GREEN_MIN
+    if not (red_ratio > FRIEND_SEND_RED_MIN and grn_ratio > FRIEND_SEND_GREEN_MIN):
+        return False
+    h, w = screen.shape[:2]
+    ay1, ay2 = (max(0, y - FRIEND_ARROW_HALF), min(h, y + FRIEND_ARROW_HALF))
+
+    def _yellow(x1c, x2c):
+        x1c, x2c = (max(0, x1c), min(w, x2c))
+        r = screen[ay1:ay2, x1c:x2c]
+        if r.size == 0:
+            return 0.0
+        hh = cv2.cvtColor(r, cv2.COLOR_BGR2HSV)
+        yl = cv2.inRange(hh, (20, 120, 120), (35, 255, 255))
+        return float(yl.sum()) / 255.0 / (r.shape[0] * r.shape[1])
+
+    strip = screen[max(0, y - 14):min(h, y + 14), 150:620]
+    if strip.size:
+        sh = cv2.cvtColor(strip, cv2.COLOR_BGR2HSV)
+        syl = cv2.inRange(sh, (20, 120, 120), (35, 255, 255))
+        if float(syl.sum()) / 255.0 / (strip.shape[0] * strip.shape[1]) > FRIEND_SELF_HILITE_MIN:
+            return False
+    yellow_arrow = _yellow(x + 2, x + 50)
+    yellow_left = _yellow(x - 50, x - 2)
+    return yellow_arrow > FRIEND_ARROW_YELLOW_MIN and yellow_arrow - yellow_left > FRIEND_ARROW_DIFF_MIN
 
 def _topmost_send_button(screen, half=22, step=12):
     if screen is None:
@@ -2176,6 +2189,24 @@ def draw_and_extract_loop():
             print("[treasure] อ่านค่า powder ไม่ได้ -> ยกเลิก+หยุด (fail-safe ไม่ย่อยตอนไม่แน่ใจ)")
             _tr_cancel_extract()
             break
+        if powder == 0:
+            print("[treasure] selected top slot has no extractable junk -> flip tier sort direction and retry once")
+            adb_tap(*BTN_TR_SORT)
+            time.sleep(random.uniform(1.0, 1.4))
+            adb_tap(*BTN_TR_SORT_TIER)
+            time.sleep(random.uniform(1.2, 1.6))
+            adb_tap(*BTN_TR_TOPLEFT)
+            time.sleep(random.uniform(1.2, 1.6))
+            screen = adb_screencap_stable()
+            powder = _read_powder(screen)
+            if powder is None:
+                print("[treasure] powder unreadable after sort retry -> cancel+stop (fail-safe)")
+                _tr_cancel_extract()
+                break
+            if powder > TR_POWDER_MAX:
+                print(f"[treasure] powder={powder} > {TR_POWDER_MAX} after sort retry -> cancel+stop")
+                _tr_cancel_extract()
+                break
         if powder == 0:
             print("[treasure] เลือกไม่ติด (ชิ้นบนสุดถูกล็อก⭐/ใส่อยู่ = ไม่มีขยะให้ย่อย) -> ยกเลิก+หยุด")
             _tr_cancel_extract()

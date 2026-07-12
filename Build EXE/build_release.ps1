@@ -1,7 +1,7 @@
 ﻿$ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Name = "JLmain_V1.1.1_Premium"
+$Name = "JLmain_V1.2.0_Premium"
 $Stage = Join-Path $Root "release_stage"
 $Obf = Join-Path $Stage "obf"
 $Out = Join-Path $Root "dist"
@@ -38,7 +38,7 @@ pyinstaller --noconfirm --clean --onefile --windowed --optimize 2 --name $Name `
   (Join-Path $Root "run.py")
 
 Copy-Item -LiteralPath $Exe -Destination (Join-Path $ZipStage "$Name.exe")
-Copy-Item -LiteralPath $Guide.FullName -Destination (Join-Path $ZipStage "How_to_use_JLmain_V1.1.1_Premium.txt")
+Copy-Item -LiteralPath $Guide.FullName -Destination (Join-Path $ZipStage "How_to_use_JLmain_V1.2.0_Premium.txt")
 Compress-Archive -Path (Join-Path $ZipStage "*") -DestinationPath $Zip -Force
 
 Get-FileHash -Algorithm SHA256 $Exe, $Zip | Format-Table -AutoSize
