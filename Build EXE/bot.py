@@ -16,6 +16,7 @@ import traceback
 from enum import Enum, auto
 import cv2
 import numpy as np
+import treasure_extract_roi
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -271,7 +272,8 @@ SETTINGS = {
     'avoid_revive': True, 
     'use_faststart': False,
     'use_relic': True,
-    'use_mail_lives': False
+    'use_mail_lives': False,
+    'treasure_extract_count': 12,
 }
 
 # --- SCREEN & COORDINATES ---
@@ -2127,7 +2129,7 @@ def _tr_goto_extract_grid():
                 time.sleep(random.uniform(1.2, 1.6))
     return False
 
-def draw_and_extract_loop():
+def _draw_and_extract_loop_legacy():
     _require_runtime_license()
     print("\n===== [Treasure] สุ่ม+ย่อยสมบัติ (Beta) =====")
     print("*** เตือน: ล็อกดาว (⭐) สมบัติที่อยากเก็บให้ครบก่อน! ที่ไม่ล็อก = บอทย่อยได้ ***")
@@ -2234,6 +2236,28 @@ def draw_and_extract_loop():
         adb_tap(*BTN_TR_GRID_CLOSE)
         time.sleep(random.uniform(1.6, 2.2))
     print(f"[treasure] จบ — สุ่ม {drawn} / ย่อย {extracted} ชิ้น")
+
+
+def draw_and_extract_loop(draw_count=None):
+    """Run the ROI state machine validated by the Treasure Extract test tool."""
+    _require_runtime_license()
+    count = int(draw_count if draw_count is not None else SETTINGS.get('treasure_extract_count', 12))
+    count = max(1, min(12, count))
+
+    def resolution_ok():
+        screen = adb_screencap_stable()
+        return screen is not None and screen.shape[:2] == (720, 1280)
+
+    runner = treasure_extract_roi.TreasureExtractRoiRunner(
+        serial=ADB_DEVICE or "device",
+        draw_count=count,
+        stop_event=STOP_FLAG,
+        capture_callback=adb_screencap_stable,
+        tap_callback=lambda x, y: adb_tap(x, y),
+        resolution_callback=resolution_ok,
+        log_callback=lambda message: print(f"[treasure] {message}"),
+    )
+    return runner.run()
 
 def main():
     print('============================================================')

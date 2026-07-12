@@ -1,0 +1,370 @@
+[
+  {
+    "name": "rule1_into_tre",
+    "template": "rule1_into_tre.png",
+    "crop": [
+      785,
+      521,
+      346,
+      48
+    ],
+    "scan": [
+      785,
+      521,
+      346,
+      48
+    ],
+    "tap": [
+      1087,
+      539
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule2_Draw",
+    "template": "rule2_Draw.png",
+    "crop": [
+      259,
+      617,
+      96,
+      49
+    ],
+    "scan": [
+      259,
+      617,
+      96,
+      49
+    ],
+    "tap": [
+      307,
+      646
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule3_Click",
+    "template": "rule3_Click.png",
+    "crop": [
+      188,
+      204,
+      159,
+      91
+    ],
+    "scan": [
+      188,
+      204,
+      159,
+      91
+    ],
+    "tap": [
+      275,
+      527
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule4_Cliam",
+    "template": "rule4_Cliam.png",
+    "crop": [
+      414,
+      93,
+      451,
+      69
+    ],
+    "scan": [
+      414,
+      93,
+      451,
+      69
+    ],
+    "tap": [
+      642,
+      575
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule5_if_after_rule3_showthis",
+    "template": "rule5_if_after_rule3_showthis.png",
+    "crop": [
+      416,
+      222,
+      427,
+      284
+    ],
+    "scan": [
+      416,
+      222,
+      427,
+      284
+    ],
+    "tap": [
+      613,
+      456
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule6_if_after_rule3_showthis",
+    "template": "rule6_if_after_rule3_showthis.png",
+    "crop": [
+      400,
+      611,
+      401,
+      77
+    ],
+    "scan": [
+      400,
+      611,
+      401,
+      77
+    ],
+    "tap": [
+      242,
+      130
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule8_Extrack",
+    "template": "rule8_Extrack.png",
+    "crop": [
+      793,
+      349,
+      288,
+      91
+    ],
+    "scan": [
+      793,
+      349,
+      288,
+      91
+    ],
+    "tap": [
+      639,
+      686
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule9_Sort",
+    "template": "rule9_Sort.png",
+    "crop": [
+      468,
+      59,
+      349,
+      50
+    ],
+    "scan": [
+      468,
+      59,
+      349,
+      50
+    ],
+    "tap": [
+      293,
+      95
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule14_clear",
+    "template": "rule14_clear.png",
+    "crop": [
+      841,
+      633,
+      194,
+      73
+    ],
+    "scan": [
+      841,
+      633,
+      194,
+      73
+    ],
+    "tap": [
+      942,
+      674
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule14_clear_confirm2",
+    "template": "rule14_clear_confirm2.png",
+    "crop": [
+      448,
+      269,
+      395,
+      74
+    ],
+    "scan": [
+      448,
+      269,
+      395,
+      74
+    ],
+    "tap": [
+      637,
+      462
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule10_Fav",
+    "template": "rule10_Fav.png",
+    "crop": [
+      279,
+      132,
+      284,
+      52
+    ],
+    "scan": [
+      279,
+      132,
+      284,
+      52
+    ],
+    "tap": [
+      220,
+      333
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule11_selcet",
+    "template": "rule11_selcet.png",
+    "crop": [
+      462,
+      61,
+      361,
+      44
+    ],
+    "scan": [
+      462,
+      61,
+      361,
+      44
+    ],
+    "tap": [
+      615,
+      327
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule6.1_Way2",
+    "template": "rule6.1_Way2.png",
+    "crop": [
+      412,
+      200,
+      197,
+      363
+    ],
+    "scan": [
+      412,
+      200,
+      197,
+      363
+    ],
+    "tap": [
+      242,
+      130
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule12_END",
+    "template": "rule12_END.png",
+    "crop": [
+      355,
+      287,
+      587,
+      131
+    ],
+    "scan": [
+      355,
+      287,
+      587,
+      131
+    ],
+    "tap": [
+      942,
+      674
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule14_clear_confirm",
+    "template": "rule14_clear_confirm.png",
+    "crop": [
+      410,
+      257,
+      461,
+      90
+    ],
+    "scan": [
+      410,
+      257,
+      461,
+      90
+    ],
+    "tap": [
+      637,
+      513
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  },
+  {
+    "name": "rule20_out",
+    "template": "rule20_out.png",
+    "crop": [
+      470,
+      69,
+      196,
+      54
+    ],
+    "scan": [
+      470,
+      69,
+      196,
+      54
+    ],
+    "tap": [
+      1127,
+      97
+    ],
+    "swipe": null,
+    "swipe_duration_ms": 350,
+    "threshold": 0.8
+  }
+]

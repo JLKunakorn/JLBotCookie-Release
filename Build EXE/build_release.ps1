@@ -17,10 +17,11 @@ Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $Zip -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $Stage, $Obf, $ZipStage | Out-Null
 
-python -m py_compile bot.py JLmain.py license_core.py run.py
+python -m py_compile bot.py JLmain.py license_core.py run.py treasure_extract_roi.py
 
 Copy-Item -LiteralPath (Join-Path $Root "assets") -Destination (Join-Path $Obf "assets") -Recurse
 Copy-Item -LiteralPath (Join-Path $Root "templates") -Destination (Join-Path $Obf "templates") -Recurse
+Copy-Item -LiteralPath (Join-Path $Root "treasure_extract_roi") -Destination (Join-Path $Obf "treasure_extract_roi") -Recurse
 Copy-Item -LiteralPath (Join-Path $Root "adb_bundle") -Destination (Join-Path $Obf "adb_bundle") -Recurse
 Copy-Item -LiteralPath (Join-Path $Root "license_config.json") -Destination (Join-Path $Obf "license_config.json")
 
@@ -31,6 +32,7 @@ pyinstaller --noconfirm --clean --onefile --windowed --optimize 2 --name $Name `
   --add-data "$($Obf)\license_config.json;." `
   --add-data "$($Obf)\assets;assets" `
   --add-data "$($Obf)\templates;templates" `
+  --add-data "$($Obf)\treasure_extract_roi;treasure_extract_roi" `
   --add-data "$($Obf)\adb_bundle;adb_bundle" `
   --distpath $Out `
   --workpath (Join-Path $Stage "build") `

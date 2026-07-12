@@ -15,7 +15,7 @@ import license_core
 
 
 APP_NAME = "JLmain"
-APP_DISPLAY_VERSION = "V1.2.0 Premium"
+APP_DISPLAY_VERSION = "V1.2.1 Premium"
 license_core.CLIENT_VERSION = APP_DISPLAY_VERSION
 RELEASE_MODE = bool(getattr(sys, "frozen", False))
 
@@ -948,6 +948,29 @@ del "%~f0"
             justify="left"
         )
         warning_lbl.pack(fill="x", padx=12, pady=(12, 4))
+
+        count_row = ctk.CTkFrame(tr_main, fg_color=CARD)
+        count_row.pack(fill="x", padx=12, pady=(4, 4))
+        ctk.CTkLabel(
+            count_row,
+            text="จำนวนสุ่ม/จำนวนที่จะเลือก (1-12)",
+            text_color=TEXT,
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side="left")
+        self.tr_extract_count_var = tk.StringVar(
+            value=str(int(bot.SETTINGS.get("treasure_extract_count", 12) or 12))
+        )
+        self.tr_extract_count_entry = ctk.CTkEntry(
+            count_row,
+            textvariable=self.tr_extract_count_var,
+            width=64,
+            height=30,
+            justify="center",
+            fg_color=ENTRY,
+            border_color=LINE,
+            text_color=TEXT,
+        )
+        self.tr_extract_count_entry.pack(side="left", padx=(10, 0))
         
         self.tr_extract_run_var = tk.StringVar(value="▶ เริ่มสุ่มและย่อยสมบัติ (Beta)")
         self.tr_extract_run_btn = ctk.CTkButton(
@@ -1303,6 +1326,13 @@ del "%~f0"
             bot.MAIL_MIN_COUNT = max(0, val)
         except ValueError:
             bot.MAIL_MIN_COUNT = 0
+        try:
+            count = int(self.tr_extract_count_var.get().strip() or "12")
+        except ValueError:
+            count = 12
+        count = max(1, min(12, count))
+        self.tr_extract_count_var.set(str(count))
+        bot.SETTINGS["treasure_extract_count"] = count
 
     def test_connection(self):
         self._apply_config()
