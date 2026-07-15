@@ -16,12 +16,14 @@ CREATE TABLE IF NOT EXISTS lic_keys (
 CREATE TABLE IF NOT EXISTS lic_seats (
   code TEXT NOT NULL,
   hwid TEXT NOT NULL,
+  hwid_v2 TEXT,
   first_seen INTEGER NOT NULL,
   last_seen INTEGER NOT NULL,
   PRIMARY KEY (code, hwid)
 );
 
 CREATE INDEX IF NOT EXISTS idx_lic_seats_code ON lic_seats(code);
+CREATE INDEX IF NOT EXISTS idx_lic_seats_code_hwid_v2 ON lic_seats(code, hwid_v2);
 CREATE INDEX IF NOT EXISTS idx_lic_keys_stock ON lic_keys(status, plan, duration_days, max_seats, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lic_keys_order_id ON lic_keys(order_id) WHERE order_id IS NOT NULL;
 

@@ -1228,7 +1228,7 @@
               <li>ระบบปั๊มหัวใจเข้าไอดีหลักผ่านลิงก์ / ปั๊มเพื่อน</li>
               <li>ระบบแปลงมาโครเป็นมนุษย์ (MuMu Player)</li>
               <li>รองรับการรันบอทหลายหน้าจอพร้อมกัน (Multi-screen)</li>
-              <li>ปั๊มกิจกรรมชวนเพื่อน 29 คน (กำลังอัปเดต 🛠️)</li>
+              <li>ฟาร์มกิจกรรมเชิญเพื่อนอัตโนมัติ พร้อมแสดงจำนวนไอดี</li>
             </ul>
           </div>
 
@@ -1368,7 +1368,7 @@
                 <li>ปั๊มหัวใจเข้าลิงก์ / ปั๊มเพื่อน</li>
                 <li>แปลงมาโครเป็นมนุษย์ (MuMu)</li>
                 <li>รันหลายหน้าจอ (Multi-screen)</li>
-                <li>ปั๊มเชิญเพื่อน 29 คน (กำลังอัปเดต 🛠️)</li>
+                <li>ฟาร์มกิจกรรมเชิญเพื่อนอัตโนมัติ</li>
               </ul>
               <div class="stock-line" data-stock-line="1d_promax">คีย์คงเหลือ <strong data-stock-count="1d_promax">กำลังเช็ค</strong></div>
               <button class="btn secondary" type="button" data-plan="1 วัน (ProMax)">เลือก 1 วัน (ProMax)</button>
@@ -1384,7 +1384,7 @@
                 <li>ปั๊มหัวใจเข้าลิงก์ / ปั๊มเพื่อน</li>
                 <li>แปลงมาโครเป็นมนุษย์ (MuMu)</li>
                 <li>รันหลายหน้าจอ (Multi-screen)</li>
-                <li>ปั๊มเชิญเพื่อน 29 คน (กำลังอัปเดต 🛠️)</li>
+                <li>ฟาร์มกิจกรรมเชิญเพื่อนอัตโนมัติ</li>
               </ul>
               <div class="stock-line" data-stock-line="7d_promax">คีย์คงเหลือ <strong data-stock-count="7d_promax">กำลังเช็ค</strong></div>
               <button class="btn" type="button" data-plan="7 วัน (ProMax)">เลือก 7 วัน (ProMax)</button>
@@ -1400,7 +1400,7 @@
                 <li>ปั๊มหัวใจเข้าลิงก์ / ปั๊มเพื่อน</li>
                 <li>แปลงมาโครเป็นมนุษย์ (MuMu)</li>
                 <li>รันหลายหน้าจอ (Multi-screen)</li>
-                <li>ปั๊มเชิญเพื่อน 29 คน (กำลังอัปเดต 🛠️)</li>
+                <li>ฟาร์มกิจกรรมเชิญเพื่อนอัตโนมัติ</li>
               </ul>
               <div class="stock-line" data-stock-line="30d_promax">คีย์คงเหลือ <strong data-stock-count="30d_promax">กำลังเช็ค</strong></div>
               <button class="btn secondary" type="button" data-plan="30 วัน (ProMax)">เลือก 30 วัน (ProMax)</button>
@@ -2264,7 +2264,7 @@
         ? `ประกาศสำหรับ JL BOT ProMax${versionText ? ` (${esc(versionText)})` : ""}`
         : `ประกาศสำหรับ JL BOT Premium${versionText ? ` (${esc(versionText)})` : ""}`;
       const noticeText = isProMaxDownload
-        ? "ProMax รวมฟังก์ชัน Premium ทั้งหมด พร้อมรีโรลไอดี ปั๊มหัวใจผ่านลิงก์ แปลงมาโคร MuMu และรองรับหลายหน้าจอ บางฟังก์ชันกิจกรรมจะทยอยอัปเดตตามรอบเวอร์ชัน"
+        ? "ProMax รวมฟังก์ชัน Premium ทั้งหมด พร้อมรีโรลไอดี ปั๊มหัวใจ ฟาร์มกิจกรรมเชิญเพื่อน นำเข้า/ส่งออกชุดมาโคร บันทึก Webhook และ Auto Cloudflare WARP (Beta)"
         : "Premium เป็นแพ็กเกจหลักสำหรับระบบอัตโนมัติพื้นฐาน หากใช้งานฟังก์ชันเกี่ยวกับสมบัติหรือระบบที่อยู่ระหว่างพัฒนา แนะนำให้ตรวจรายการสำคัญก่อนเริ่มรันบอท";
       const primaryUrl = downloadUrl || zipUrl;
       const isZipOnly = !!primaryUrl && (!downloadUrl || downloadUrl === zipUrl || downloadUrl.toLowerCase().split("?")[0].endsWith(".zip"));
