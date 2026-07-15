@@ -363,12 +363,12 @@ async function verifyPassword(password, stored) {
 }
 
 const SHOP_PLANS = {
-  "1d": { code: "1d", label: "Premium 1 วัน", duration_days: 1, amount: 10, max_seats: 1, tier: "premium" },
-  "7d": { code: "7d", label: "Premium 7 วัน", duration_days: 7, amount: 50, max_seats: 1, tier: "premium" },
-  "30d": { code: "30d", label: "Premium 30 วัน", duration_days: 30, amount: 150, max_seats: 1, tier: "premium" },
-  "1d_promax": { code: "1d_promax", label: "ProMax 1 วัน", duration_days: 1, amount: 59, max_seats: 1, tier: "promax" },
-  "7d_promax": { code: "7d_promax", label: "ProMax 7 วัน", duration_days: 7, amount: 149, max_seats: 1, tier: "promax" },
-  "30d_promax": { code: "30d_promax", label: "ProMax 30 วัน", duration_days: 30, amount: 299, max_seats: 1, tier: "promax" },
+  "1d": { code: "1d", label: "Premium 1 วัน", duration_days: 1, amount: 15, max_seats: 1, tier: "premium" },
+  "7d": { code: "7d", label: "Premium 7 วัน", duration_days: 7, amount: 70, max_seats: 1, tier: "premium" },
+  "30d": { code: "30d", label: "Premium 30 วัน", duration_days: 30, amount: 250, max_seats: 1, tier: "premium" },
+  "1d_promax": { code: "1d_promax", label: "ProMax 1 วัน", duration_days: 1, amount: 49, max_seats: 1, tier: "promax" },
+  "7d_promax": { code: "7d_promax", label: "ProMax 7 วัน", duration_days: 7, amount: 199, max_seats: 1, tier: "promax" },
+  "30d_promax": { code: "30d_promax", label: "ProMax 30 วัน", duration_days: 30, amount: 399, max_seats: 1, tier: "promax" },
 };
 
 function resolveShopPlan(value) {
