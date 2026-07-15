@@ -82,6 +82,9 @@ def _bundled_adb():
     return resource_path(os.path.join('adb_bundle', 'adb.exe'))
 
 def find_adb():
+    b = _bundled_adb()
+    if os.path.exists(b):
+        return b
     cands = [_DEFAULT_ADB]
     roots = ['D:\\LDPlayer', 'C:\\LDPlayer', 'E:\\LDPlayer', 'C:\\Program Files\\LDPlayer', 'C:\\Program Files (x86)\\LDPlayer', 'D:\\Program Files\\LDPlayer', 'C:\\ChangZhi', 'D:\\ChangZhi']
     subs = ['LDPlayer14', 'LDPlayer9', 'LDPlayer64', 'LDPlayer4', '']
@@ -93,9 +96,6 @@ def find_adb():
     for c in cands:
         if os.path.exists(c):
             return c
-    b = _bundled_adb()
-    if os.path.exists(b):
-        return b
     return 'adb'
 
 def find_ld_adb():
@@ -226,15 +226,15 @@ EMU_PROFILES = {
 }
 
 def adb_path_for_emu(emu):
-    """Return the adb path for a named emulator profile."""
+    """Prefer the bundled ADB, matching the proven ProMax behavior."""
+    b = _bundled_adb()
+    if os.path.exists(b):
+        return b
     profile = EMU_PROFILES.get(emu)
     if profile:
         adb_path = profile['find_adb']()
         if adb_path:
             return adb_path
-    b = _bundled_adb()
-    if os.path.exists(b):
-        return b
     return 'adb'
 
 def _list_online_devices_with_adb(adb_path):
@@ -274,6 +274,18 @@ def _serial_matches_profile(serial, emu):
     return True
 
 
+def _serial_port_value(serial):
+    value = str(serial or '').strip()
+    try:
+        if value.startswith('emulator-'):
+            return int(value.rsplit('-', 1)[1])
+        if ':' in value:
+            return int(value.rsplit(':', 1)[1])
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
 def _serial_slot_id(serial, emu):
     """Map ADB aliases for one physical emulator to the same slot id."""
     value = str(serial or '').strip()
@@ -308,9 +320,26 @@ def _device_has_framebuffer(adb_path, serial, timeout=5):
         return False
 
 def list_emu_instances(emu):
-    """Return only matching, online emulator serials with a working framebuffer."""
+    """Use the proven ADB scan as the source of truth for online instances.
+
+    Emulator managers only add port hints. An empty or incompatible manager
+    response must never hide a device that already appears in ``adb devices``.
+    """
     profile = EMU_PROFILES.get(emu)
     adb_path = adb_path_for_emu(emu)
+    ports = list(profile['ports']) if profile else list(EMU_CONNECT_PORTS)
+    hinted_ports = set()
+
+    if emu == 'LDPlayer':
+        running_indexes = _ld_running_indices()
+        if running_indexes:
+            hinted_ports.update(5555 + index * 2 for index in running_indexes)
+    elif emu == 'MuMu':
+        running_ports = _mumu_running_ports()
+        if running_ports:
+            hinted_ports.update(int(port) for port in running_ports if int(port) > 0)
+
+    ports = list(dict.fromkeys(ports + sorted(hinted_ports)))
 
     def _try(port):
         try:
@@ -319,75 +348,26 @@ def list_emu_instances(emu):
         except Exception:
             return None
 
-    # Prefer each emulator's own manager as the source of truth. ADB servers
-    # can share transports, so port 5557 can otherwise be a MuMu alias even
-    # when no LDPlayer process is running.
-    if emu == 'LDPlayer':
-        running_indexes = _ld_running_indices()
-        if running_indexes is not None:
-            ports = [5555 + index * 2 for index in running_indexes]
-            threads = [threading.Thread(target=_try, args=(port,), daemon=True) for port in ports]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join(timeout=5)
-            online = []
-            for index, port in zip(running_indexes, ports):
-                local_serial = '127.0.0.1:%d' % port
-                emulator_serial = 'emulator-%d' % (5554 + index * 2)
-                if _device_has_framebuffer(adb_path, emulator_serial):
-                    online.append(emulator_serial)
-                elif _device_has_framebuffer(adb_path, local_serial):
-                    online.append(local_serial)
-            return online
-
-    if emu == 'MuMu':
-        running_ports = _mumu_running_ports()
-        if running_ports is not None:
-            threads = [threading.Thread(target=_try, args=(port,), daemon=True) for port in running_ports]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join(timeout=5)
-            return [
-                '127.0.0.1:%d' % port
-                for port in running_ports
-                if _device_has_framebuffer(adb_path, '127.0.0.1:%d' % port)
-            ]
-
-    # Compatibility fallback for older emulator versions without a manager
-    # command. It still requires a matching port and a valid framebuffer.
-    ports = list(profile['ports']) if profile else list(EMU_CONNECT_PORTS)
     threads = [threading.Thread(target=_try, args=(p,), daemon=True) for p in ports]
     for t in threads:
         t.start()
     for t in threads:
         t.join(timeout=5)
+
     candidates = [
         serial for serial in _list_online_devices_with_adb(adb_path)
         if _serial_matches_profile(serial, emu)
+        or _serial_port_value(serial) in hinted_ports
     ]
-    working = set()
-    working_lock = threading.Lock()
 
-    def _probe(serial):
-        if _device_has_framebuffer(adb_path, serial):
-            with working_lock:
-                working.add(serial)
-
-    probes = [threading.Thread(target=_probe, args=(serial,), daemon=True) for serial in candidates]
-    for probe in probes:
-        probe.start()
-    for probe in probes:
-        probe.join(timeout=6)
-    verified = [serial for serial in candidates if serial in working]
     # LDPlayer commonly exposes one running instance twice (for example,
     # emulator-5556 and 127.0.0.1:5557). Prefer the localhost transport that
     # we explicitly connected and show only one row for that physical slot.
-    verified.sort(key=lambda value: (str(value).startswith('emulator-'), candidates.index(value)))
+    candidate_order = {value: index for index, value in enumerate(candidates)}
+    candidates.sort(key=lambda value: (str(value).startswith('emulator-'), candidate_order[value]))
     unique = []
     seen_slots = set()
-    for serial in verified:
+    for serial in candidates:
         slot = _serial_slot_id(serial, emu)
         if slot in seen_slots:
             continue
