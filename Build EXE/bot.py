@@ -161,7 +161,7 @@ def find_mumu_manager():
 
 
 def _ld_running_indices():
-    """Return authoritative running LDPlayer indexes, or None if unavailable."""
+    """Return running LDPlayer indexes, or None when output cannot be parsed."""
     console = find_ld_console()
     if not console:
         return None
@@ -173,6 +173,7 @@ def _ld_running_indices():
             timeout=10,
         )
         indexes = []
+        parsed_rows = 0
         for line in (result.stdout or b'').decode(errors='ignore').splitlines():
             fields = [value.strip() for value in line.split(',')]
             if len(fields) < 7:
@@ -183,15 +184,16 @@ def _ld_running_indices():
                 player_pid = int(fields[5])
             except (TypeError, ValueError):
                 continue
+            parsed_rows += 1
             if android_started and player_pid > 0:
                 indexes.append(index)
-        return indexes
+        return indexes if parsed_rows else None
     except Exception:
         return None
 
 
 def _mumu_running_ports():
-    """Return authoritative running MuMu ADB ports, or None if unavailable."""
+    """Return running MuMu ADB ports, or None when output cannot be parsed."""
     manager = find_mumu_manager()
     if not manager:
         return None
@@ -203,12 +205,25 @@ def _mumu_running_ports():
             timeout=10,
         )
         payload = json.loads((result.stdout or b'{}').decode('utf-8', errors='ignore'))
-        values = payload.values() if isinstance(payload, dict) else []
+        if isinstance(payload, dict):
+            values = list(payload.values())
+        elif isinstance(payload, list):
+            values = payload
+        else:
+            return None
         ports = []
+        parsed_rows = 0
         for item in values:
             if not isinstance(item, dict):
                 continue
-            if not item.get('is_process_started') or not item.get('is_android_started'):
+            if not any(key in item for key in ('is_process_started', 'is_android_started', 'adb_port')):
+                continue
+            parsed_rows += 1
+
+            def _started(value):
+                return value is True or value == 1 or str(value).strip().lower() in {'1', 'true', 'yes'}
+
+            if not _started(item.get('is_process_started')) or not _started(item.get('is_android_started')):
                 continue
             try:
                 port = int(item.get('adb_port') or 0)
@@ -216,7 +231,7 @@ def _mumu_running_ports():
                 continue
             if port > 0:
                 ports.append(port)
-        return ports
+        return ports if parsed_rows else None
     except Exception:
         return None
 
@@ -322,22 +337,30 @@ def _device_has_framebuffer(adb_path, serial, timeout=5):
 def list_emu_instances(emu):
     """Use the proven ADB scan as the source of truth for online instances.
 
-    Emulator managers only add port hints. An empty or incompatible manager
-    response must never hide a device that already appears in ``adb devices``.
+    A successfully parsed manager response classifies the emulator brand and
+    prevents cross-brand ADB aliases. If manager output is unavailable or
+    incompatible, discovery falls back to the V1.2.1 port + ``adb devices`` flow.
     """
     profile = EMU_PROFILES.get(emu)
     adb_path = adb_path_for_emu(emu)
     ports = list(profile['ports']) if profile else list(EMU_CONNECT_PORTS)
     hinted_ports = set()
+    manager_result = None
 
     if emu == 'LDPlayer':
-        running_indexes = _ld_running_indices()
-        if running_indexes:
-            hinted_ports.update(5555 + index * 2 for index in running_indexes)
+        manager_result = _ld_running_indices()
+        if manager_result:
+            hinted_ports.update(5555 + index * 2 for index in manager_result)
     elif emu == 'MuMu':
-        running_ports = _mumu_running_ports()
-        if running_ports:
-            hinted_ports.update(int(port) for port in running_ports if int(port) > 0)
+        manager_result = _mumu_running_ports()
+        if manager_result:
+            hinted_ports.update(int(port) for port in manager_result if int(port) > 0)
+
+    # A valid manager response with no running instances is authoritative. The
+    # important distinction is that unparseable output returns None and still
+    # reaches the compatibility fallback below.
+    if manager_result == []:
+        return []
 
     ports = list(dict.fromkeys(ports + sorted(hinted_ports)))
 
@@ -354,11 +377,24 @@ def list_emu_instances(emu):
     for t in threads:
         t.join(timeout=5)
 
-    candidates = [
-        serial for serial in _list_online_devices_with_adb(adb_path)
-        if _serial_matches_profile(serial, emu)
-        or _serial_port_value(serial) in hinted_ports
-    ]
+    online_devices = _list_online_devices_with_adb(adb_path)
+    if manager_result is not None:
+        if emu == 'LDPlayer':
+            running_slots = {int(index) for index in manager_result}
+            candidates = [
+                serial for serial in online_devices
+                if _serial_slot_id(serial, emu)[1] in running_slots
+            ]
+        else:
+            candidates = [
+                serial for serial in online_devices
+                if _serial_port_value(serial) in hinted_ports
+            ]
+    else:
+        candidates = [
+            serial for serial in online_devices
+            if _serial_matches_profile(serial, emu)
+        ]
 
     # LDPlayer commonly exposes one running instance twice (for example,
     # emulator-5556 and 127.0.0.1:5557). Prefer the localhost transport that
