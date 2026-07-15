@@ -27,6 +27,7 @@ from pathlib import Path
 APP_NAME = "JLmain"
 CONFIG_NAME = "license_config.json"
 STATE_NAME = "license_state.json"
+SCREEN_CACHE_DIR_NAME = "screen_license_cache"
 
 CLIENT_VERSION = ""
 
@@ -64,6 +65,13 @@ def _config_paths() -> list[Path]:
 
 def _state_path() -> Path:
     return _appdata_dir() / STATE_NAME
+
+
+def _screen_cache_path(key_string: str) -> Path:
+    key_hash = hashlib.sha256(str(key_string or "").strip().encode("utf-8")).hexdigest()
+    path = _appdata_dir() / SCREEN_CACHE_DIR_NAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path / f"{key_hash}.json"
 
 
 def _read_json(path: Path) -> dict:
@@ -147,6 +155,15 @@ def get_hwid() -> str:
     return hashlib.sha256(b"JLmain|" + raw).hexdigest()[:32].upper()
 
 
+def get_hwid_v2() -> str:
+    """HWID เสถียรกว่าเดิม — ตัด uuid.getnode() (MAC address) ออก เพราะไม่เสถียร
+    บนเครื่องที่มี virtual network adapter (MuMu/LDPlayer) ใช้แค่ MachineGuid
+    ซึ่งผูกกับ Windows ที่ติดตั้งไว้ ไม่ขยับเว้นแต่ลง Windows ใหม่"""
+    parts = [_machine_guid(), socket.gethostname(), os.environ.get("COMPUTERNAME", "")]
+    raw = "|".join(p for p in parts if p).encode("utf-8", "ignore")
+    return hashlib.sha256(b"JLmain-v2|" + raw).hexdigest()[:32].upper()
+
+
 def _post_json(url: str, body: dict, timeout: int) -> dict:
     data = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
@@ -196,6 +213,7 @@ def _info_from_payload(payload: dict) -> dict:
         "id": payload.get("id") or payload.get("code") or "online",
         "name": payload.get("name") or payload.get("plan") or "online-license",
         "plan": payload.get("plan") or "",
+        "key_tier": payload.get("key_tier") or payload.get("product_tier") or "premium",
         "token_exp": payload.get("token_exp"),
         "app_version": payload.get("app_version") or "",
         "download_url": payload.get("download_url") or "",
@@ -213,6 +231,21 @@ def _cached_result(cfg: dict) -> tuple[bool, dict | str]:
     return True, _info_from_payload(payload)
 
 
+def _cached_screen_result(cfg: dict, key_string: str) -> tuple[bool, dict | str]:
+    key = str(key_string or "").strip()
+    state = _read_json(_screen_cache_path(key))
+    expected_id = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    if state.get("key_id") != expected_id:
+        return False, "screen license cache does not match this key"
+    resp = state.get("server_response")
+    if not isinstance(resp, dict):
+        return False, "no cached token for this screen license"
+    payload = _verify_signed_response(resp, cfg)
+    if not payload or not _payload_is_fresh(payload):
+        return False, "screen license token is expired or invalid"
+    return True, _info_from_payload(payload)
+
+
 def verify_key(key_string=None):
     cfg = _load_config()
     if not is_enabled():
@@ -227,7 +260,13 @@ def verify_key(key_string=None):
     try:
         resp = _post_json(
             cfg["api_url"],
-            {"key": key, "hwid": get_hwid(), "app": APP_NAME, "client_version": CLIENT_VERSION},
+            {
+                "key": key,
+                "hwid": get_hwid(),
+                "hwid_v2": get_hwid_v2(),
+                "app": APP_NAME,
+                "client_version": CLIENT_VERSION,
+            },
             int(cfg.get("request_timeout_seconds") or 8),
         )
         payload = _verify_signed_response(resp, cfg)
@@ -246,6 +285,82 @@ def verify_key(key_string=None):
         return False, f"ติดต่อ license server ไม่ได้: {exc}"
     except Exception as exc:
         return False, f"ตรวจ license ไม่สำเร็จ: {exc}"
+
+
+def verify_screen_key(key_string=None):
+    """Verify an extra screen key without replacing the primary key state."""
+    cfg = _load_config()
+    if not is_enabled():
+        return True, dict(DEV_INFO)
+    if not is_configured():
+        return False, "license server/public key is not configured"
+
+    key = str(key_string or "").strip()
+    if not key:
+        return False, "please enter a license key"
+
+    try:
+        resp = _post_json(
+            cfg["api_url"],
+            {
+                "key": key,
+                "hwid": get_hwid(),
+                "hwid_v2": get_hwid_v2(),
+                "app": APP_NAME,
+                "client_version": CLIENT_VERSION,
+            },
+            int(cfg.get("request_timeout_seconds") or 8),
+        )
+        payload = _verify_signed_response(resp, cfg)
+        if not payload:
+            return False, "license server response signature is invalid"
+        if payload.get("hwid") != get_hwid():
+            return False, "license HWID does not match this computer"
+        if not payload.get("ok"):
+            return False, str(payload.get("msg") or "license rejected")
+        _write_json(
+            _screen_cache_path(key),
+            {
+                "key_id": hashlib.sha256(key.encode("utf-8")).hexdigest(),
+                "hwid": get_hwid(),
+                "server_response": resp,
+                "payload": payload,
+                "saved_at": int(time.time()),
+            },
+        )
+        return True, _info_from_payload(payload)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        ok, info = _cached_screen_result(cfg, key)
+        if ok:
+            return ok, info
+        if key == get_saved_key():
+            ok, info = _cached_result(cfg)
+            if ok:
+                return ok, info
+        return False, f"could not contact license server: {exc}"
+    except Exception as exc:
+        return False, f"screen license verification failed: {exc}"
+
+
+def check_screen_key(key_string=None, force_online=False):
+    """Check one assigned screen key using its own cache and heartbeat."""
+    cfg = _load_config()
+    if not is_enabled():
+        return True, dict(DEV_INFO)
+    if not is_configured():
+        return False, "license server/public key is not configured"
+    key = str(key_string or "").strip()
+    if not key:
+        return False, "please enter a license key"
+    if not force_online:
+        ok, info = _cached_screen_result(cfg, key)
+        if ok:
+            return ok, info
+        if key == get_saved_key():
+            ok, info = _cached_result(cfg)
+            if ok:
+                return ok, info
+    return verify_screen_key(key)
 
 
 def activate(key_string=None):

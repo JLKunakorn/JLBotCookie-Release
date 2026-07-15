@@ -1,0 +1,20 @@
+[
+  {
+    "name": "lobby_play",
+    "template": "lobby_play.png",
+    "scan": [0, 0, 1280, 720],
+    "threshold": 0.75
+  },
+  {
+    "name": "relic_get",
+    "template": "relic_get.png",
+    "scan": [0, 0, 1280, 720],
+    "threshold": 0.85
+  },
+  {
+    "name": "relic_title",
+    "template": "relic_title.png",
+    "scan": [0, 0, 1280, 720],
+    "threshold": 0.85
+  }
+]

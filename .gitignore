@@ -3,11 +3,15 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 
 # PyInstaller build files
 build/
 dist/
 *.spec
+release_stage/
+Build EXE/build_err.txt
+Build EXE/build_out.txt
 
 # Agent binary
 Antigravity-x64.exe
@@ -25,7 +29,6 @@ coin_logs/
 # Scratch/reverse-engineering artifacts
 scratch/
 JLCookie/scratch/
-Build EXE/release_stage/
 *_Decompiled.py
 Mockup*.html
 mockup.html

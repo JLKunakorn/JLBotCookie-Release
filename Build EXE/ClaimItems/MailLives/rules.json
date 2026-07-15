@@ -1,0 +1,20 @@
+[
+  {
+    "name": "lobby_play",
+    "template": "lobby_play.png",
+    "scan": [0, 0, 1280, 720],
+    "threshold": 0.75
+  },
+  {
+    "name": "mail_icon",
+    "template": "mail_icon.png",
+    "scan": [0, 0, 1280, 720],
+    "threshold": 0.75
+  },
+  {
+    "name": "mailbox_title",
+    "template": "mailbox_title.png",
+    "scan": [0, 0, 1280, 720],
+    "threshold": 0.8
+  }
+]

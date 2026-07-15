@@ -1,17 +1,17 @@
-JLmain V1.0 Premium - clean build staging
+JLmain V2.0.0 Premium - clean build staging
 
 Use this folder only for building the customer EXE.
 
 Included:
-- bot.py
-- JLmain.py
-- license_core.py
-- run.py / run.bat
-- build_exe.bat
+- bot.py / JLmain.py / run.py
+- license_core.py / screen_license_store.py
+- adb_core.py / premium_runtime.py / premium_ocr.py
+- premium_multi.py / premium_worker.py
+- notification_settings.py / premium_notifier.py
+- ClaimItems/
+- treasure_extract_roi.py / treasure_extract_roi/
 - license_config.json
-- assets/
-- templates/
-- adb_bundle/
+- assets/ / templates/ / adb_bundle/
 
 Do not copy these into this folder:
 - server/admin/private config

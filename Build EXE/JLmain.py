@@ -2,6 +2,7 @@
 import datetime
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -12,10 +13,14 @@ from PIL import Image, ImageTk
 
 import bot
 import license_core
+import notification_settings
+import premium_multi
+import premium_notifier
+import screen_license_store
 
 
 APP_NAME = "JLmain"
-APP_DISPLAY_VERSION = "V1.2.1 Premium"
+APP_DISPLAY_VERSION = "V2.0.0 Premium"
 license_core.CLIENT_VERSION = APP_DISPLAY_VERSION
 RELEASE_MODE = bool(getattr(sys, "frozen", False))
 
@@ -36,6 +41,52 @@ LOG_WARN = "#FF6B6B"
 LOG_COIN = "#FFD23F"
 LOG_INFO = "#6EC6FF"
 LOG_STATE = "#C8783C"
+EMU_ALL = "LDPlayer + MuMu"
+NOTIFY_MODE_LABELS = {
+    notification_settings.MODE_OFF: "ปิด",
+    notification_settings.MODE_CUSTOM: "Webhook ของตัวเอง",
+}
+NOTIFY_LABEL_MODES = {label: mode for mode, label in NOTIFY_MODE_LABELS.items()}
+RUN_MODE_LABELS = {
+    "jump": "กระโดดสุ่ม",
+    "slide": "สไลด์",
+    "jump_slide": "กระโดด + สไลด์",
+    "none": "ไม่ทำอะไร",
+}
+RUN_LABEL_MODES = {label: mode for mode, label in RUN_MODE_LABELS.items()}
+
+
+def _version_numbers(value):
+    match = re.search(r"(?i)\bv?(\d+)\.(\d+)\.(\d+)\b", str(value or ""))
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
+def _is_newer_version(server_version, current_version):
+    server = _version_numbers(server_version)
+    current = _version_numbers(current_version)
+    return bool(server and current and server > current)
+
+
+def _format_delay_range(minimum, maximum):
+    return f"{float(minimum):g}-{float(maximum):g}"
+
+
+def _parse_delay_range(value, label):
+    text = str(value or "").strip().replace("–", "-").replace("—", "-").replace(",", ".")
+    parts = [part.strip() for part in text.split("-")]
+    if len(parts) == 1:
+        parts *= 2
+    if len(parts) != 2 or not all(parts):
+        raise ValueError(f"{label}: ใส่ค่าเดียวหรือช่วง เช่น 0.5 หรือ 0.14-0.72")
+    try:
+        minimum, maximum = (float(part) for part in parts)
+    except ValueError as exc:
+        raise ValueError(f"{label}: ต้องเป็นตัวเลข") from exc
+    if not 0.05 <= minimum <= maximum <= 10.0:
+        raise ValueError(f"{label}: ต้องอยู่ระหว่าง 0.05–10 วินาที และค่าต่ำสุดต้องไม่เกินค่าสูงสุด")
+    return minimum, maximum
 
 
 ctk.set_appearance_mode("dark")
@@ -54,6 +105,7 @@ class JLMainApp:
         self._max_loops = 0
         self.advanced_open = False
         self.inst_serials = {}
+        self.instance_meta = {}
         self.license_enabled = license_core.is_enabled()
         self.license_key_var = None
         self.license_status_var = None
@@ -62,6 +114,14 @@ class JLMainApp:
         self.license_expired_notified = False
         self.license_popup = None
         self._geometry_busy_until = 0.0
+        self.screen_rows = {}
+        self.screen_serials = []
+        self.extra_screen_keys = screen_license_store.load_keys()
+        self.notification_config = notification_settings.load_settings()
+        self.notifier = premium_notifier.PremiumNotifier(self.notification_config)
+        self.multi_farm = premium_multi.MultiFarmManager(self._on_multi_worker_event)
+        self._closing = False
+        self.active_emu = ""
 
         bot.LOG_CALLBACK = self._enqueue_bot_log
         bot.COIN_CALLBACK = lambda c, t: self.root.after(0, self._update_coins, c, t)
@@ -200,6 +260,7 @@ class JLMainApp:
         self._build_auto_farm_assist_card()
         self._build_claim_card(self.claim_layout)
         self._build_device_card()
+        self._build_notification_card()
         self.tabs.set("Auto farm")
         self._init_emu_default()
         if self.license_enabled:
@@ -255,6 +316,53 @@ class JLMainApp:
             font=("Segoe UI", 18, "bold"),
         )
         self.license_countdown_lbl.pack(anchor="w", padx=18, pady=(0, 14))
+
+        ctk.CTkFrame(card, fg_color=LINE, height=1).pack(fill="x", padx=18, pady=(0, 12))
+        self.screen_license_count_var = tk.StringVar(value="สิทธิ์ AutoFarm: 1 จอ")
+        ctk.CTkLabel(
+            card,
+            textvariable=self.screen_license_count_var,
+            text_color=GOLD,
+            font=("Segoe UI", 13, "bold"),
+        ).pack(anchor="w", padx=18, pady=(0, 8))
+
+        extra_row = ctk.CTkFrame(card, fg_color=CARD)
+        extra_row.pack(fill="x", padx=18, pady=(0, 8))
+        extra_row.grid_columnconfigure(0, weight=1)
+        self.screen_key_var = tk.StringVar(value="")
+        ctk.CTkEntry(
+            extra_row,
+            textvariable=self.screen_key_var,
+            placeholder_text="ใส่ Key เพิ่มจอที่ 2, 3, 4...",
+            fg_color=ENTRY,
+            border_color=LINE,
+            text_color=TEXT,
+            show="•",
+            height=36,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        self.screen_key_add_btn = ctk.CTkButton(
+            extra_row,
+            text="เพิ่มสิทธิ์จอ",
+            command=self._activate_screen_key,
+            width=112,
+            height=36,
+            fg_color=CARAMEL,
+            hover_color=GOLD,
+            text_color="#2B1D14",
+            corner_radius=12,
+        )
+        self.screen_key_add_btn.grid(row=0, column=1)
+        self.screen_key_status_var = tk.StringVar(value="Key เพิ่มจะผูกกับ Windows เครื่องเดียวกับ Key หลัก")
+        self.screen_key_status_lbl = ctk.CTkLabel(
+            card,
+            textvariable=self.screen_key_status_var,
+            text_color=MUTED,
+            font=("Segoe UI", 11),
+        )
+        self.screen_key_status_lbl.pack(anchor="w", padx=18, pady=(0, 8))
+        self.screen_key_list_frame = ctk.CTkFrame(card, fg_color=CARD_DARK, corner_radius=12)
+        self.screen_key_list_frame.pack(fill="x", padx=18, pady=(0, 14))
+        self._render_screen_keys()
 
     def _license_text(self, info):
         if isinstance(info, dict):
@@ -318,8 +426,17 @@ class JLMainApp:
                         self.license_expired_notified = True
                         # self._log("[license] หมดเวลาใช้งานแล้ว\n")
                         if self.running:
-                            bot.STOP_FLAG.set()
+                            primary = license_core.get_saved_key().strip()
+                            primary_id = screen_license_store.key_id(primary) if primary else ""
+                            for serial, row in self.screen_rows.items():
+                                if row.get("key_id") == primary_id:
+                                    self.multi_farm.stop(serial, force_after=2.0)
                             # self._log("[license] หยุดบอทเพราะ license หมดอายุ\n")
+                        if any(
+                            bool(getattr(self, name, False))
+                            for name in ("gift_running", "hearts_running", "tr_extract_running")
+                        ):
+                            bot.STOP_FLAG.set()
             else:
                 self.license_countdown_var.set("")
         if schedule:
@@ -340,7 +457,7 @@ class JLMainApp:
         if not info:
             return
         srv_ver = info.get("app_version")
-        if srv_ver and srv_ver != APP_DISPLAY_VERSION:
+        if _is_newer_version(srv_ver, APP_DISPLAY_VERSION):
             from tkinter import messagebox
             dl_url = info.get("download_url") or "https://jlcookie-license.aura-secretary.workers.dev"
             if messagebox.askyesno(
@@ -548,6 +665,7 @@ del "%~f0"
                         self._set_license_status(msg, MINT)
                         # self._log(f"[license] เปิดใช้งานสำเร็จ: {msg}\n")
                         popup.destroy()
+                        self._render_screen_keys()
                         self._check_app_update(info)
                     else:
                         msg = str(info)
@@ -582,6 +700,9 @@ del "%~f0"
     def _activate_license(self):
         if not self.license_key_var:
             return
+        if self.multi_farm.any_running():
+            self._set_license_status("กรุณาหยุด AutoFarm ทุกจอก่อนเปลี่ยน Key หลัก", BERRY)
+            return
         key = self.license_key_var.get().strip()
         if not key:
             self._set_license_status("กรุณาใส่ license key", BERRY)
@@ -600,6 +721,7 @@ del "%~f0"
                     self._set_license_status(msg, MINT)
                     self.license_key_var.set("")
                     # self._log(f"[license] เปิดใช้งานสำเร็จ: {msg}\n")
+                    self._render_screen_keys()
                     self._check_app_update(info)
                 else:
                     msg = str(info)
@@ -610,6 +732,134 @@ del "%~f0"
             self.root.after(0, done)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _available_screen_keys(self):
+        if not self.license_enabled:
+            return [{"id": "development", "key": "__development__", "primary": True}]
+        result = []
+        primary = license_core.get_saved_key().strip()
+        if primary:
+            result.append(
+                {
+                    "id": screen_license_store.key_id(primary),
+                    "key": primary,
+                    "primary": True,
+                }
+            )
+        for item in self.extra_screen_keys:
+            result.append({**item, "primary": False})
+        return result
+
+    def _render_screen_keys(self):
+        frame = getattr(self, "screen_key_list_frame", None)
+        if frame is None:
+            return
+        for child in frame.winfo_children():
+            child.destroy()
+        keys = self._available_screen_keys()
+        self.screen_license_count_var.set(f"สิทธิ์ AutoFarm: {len(keys)} จอ")
+        if not keys:
+            ctk.CTkLabel(
+                frame,
+                text="ยังไม่มี Key หลัก — กรุณาเปิดใช้งานก่อน",
+                text_color=BERRY,
+                font=("Segoe UI", 11, "bold"),
+            ).pack(anchor="w", padx=12, pady=10)
+        for index, item in enumerate(keys, start=1):
+            row = ctk.CTkFrame(frame, fg_color=CARD_DARK)
+            row.pack(fill="x", padx=8, pady=(6 if index == 1 else 2, 6 if index == len(keys) else 2))
+            kind = "Key หลัก" if item.get("primary") else f"Key จอ {index}"
+            ctk.CTkLabel(
+                row,
+                text=f"{kind}: {screen_license_store.mask_key(item['key'])}",
+                text_color=TEXT,
+                font=("Segoe UI", 11, "bold"),
+            ).pack(side="left", padx=(4, 8), pady=4)
+            if not item.get("primary"):
+                ctk.CTkButton(
+                    row,
+                    text="ลบ",
+                    command=lambda item_id=item["id"]: self._remove_screen_key(item_id),
+                    width=48,
+                    height=26,
+                    fg_color=BERRY,
+                    hover_color="#FF8787",
+                    text_color="white",
+                    corner_radius=8,
+                ).pack(side="right", padx=4, pady=4)
+        if hasattr(self, "screen_rows_frame"):
+            self._render_screen_rows(self.screen_serials)
+
+    def _activate_screen_key(self):
+        if self.multi_farm.any_running():
+            self.screen_key_status_var.set("กรุณาหยุด AutoFarm ทุกจอก่อนเพิ่ม Key")
+            self.screen_key_status_lbl.configure(text_color=BERRY)
+            return
+        key = self.screen_key_var.get().strip()
+        primary = license_core.get_saved_key().strip()
+        if self.license_enabled and not primary:
+            self.screen_key_status_var.set("กรุณาเปิดใช้งาน Key หลักก่อน")
+            self.screen_key_status_lbl.configure(text_color=BERRY)
+            return
+        try:
+            key_id = screen_license_store.key_id(key)
+            if not key:
+                raise ValueError("กรุณาใส่ Key สำหรับจอเพิ่ม")
+            if primary and key_id == screen_license_store.key_id(primary):
+                raise ValueError("Key นี้เป็น Key หลักอยู่แล้ว")
+            if any(item["id"] == key_id for item in self.extra_screen_keys):
+                raise ValueError("เพิ่ม Key นี้ไว้แล้ว")
+        except ValueError as exc:
+            self.screen_key_status_var.set(str(exc))
+            self.screen_key_status_lbl.configure(text_color=BERRY)
+            return
+
+        self.screen_key_add_btn.configure(state="disabled", text="กำลังเช็ค...")
+        self.screen_key_status_var.set("กำลังตรวจสิทธิ์ Key จอเพิ่ม...")
+        self.screen_key_status_lbl.configure(text_color=GOLD)
+
+        def worker():
+            ok, info = license_core.verify_screen_key(key)
+            tier = str(info.get("tier") or "").lower() if isinstance(info, dict) else ""
+            key_tier = str(info.get("key_tier") or "premium").lower() if isinstance(info, dict) else ""
+            if ok and (tier not in {"pro", "premium", "infinite"} or key_tier not in {"premium", "promax"}):
+                ok, info = False, "Key นี้ไม่มีสิทธิ์ Premium"
+
+            def done():
+                self.screen_key_add_btn.configure(state="normal", text="เพิ่มสิทธิ์จอ")
+                if not ok:
+                    self.screen_key_status_var.set(str(info))
+                    self.screen_key_status_lbl.configure(text_color=BERRY)
+                    return
+                try:
+                    screen_license_store.add_key(key, primary_key=primary)
+                    self.extra_screen_keys = screen_license_store.load_keys()
+                except Exception as exc:
+                    self.screen_key_status_var.set(str(exc))
+                    self.screen_key_status_lbl.configure(text_color=BERRY)
+                    return
+                self.screen_key_var.set("")
+                self.screen_key_status_var.set("เพิ่มสิทธิ์จอสำเร็จ")
+                self.screen_key_status_lbl.configure(text_color=MINT)
+                self._render_screen_keys()
+
+            self.root.after(0, done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _remove_screen_key(self, item_id):
+        if self.multi_farm.any_running():
+            self.screen_key_status_var.set("กรุณาหยุด AutoFarm ทุกจอก่อนลบ Key")
+            self.screen_key_status_lbl.configure(text_color=BERRY)
+            return
+        from tkinter import messagebox
+        if not messagebox.askyesno("ลบสิทธิ์จอ", "ต้องการลบ Key จอเพิ่มนี้ออกจากเครื่องหรือไม่?"):
+            return
+        if screen_license_store.remove_key(item_id):
+            self.extra_screen_keys = screen_license_store.load_keys()
+            self.screen_key_status_var.set("ลบ Key จอเพิ่มแล้ว")
+            self.screen_key_status_lbl.configure(text_color=MUTED)
+            self._render_screen_keys()
 
     def _build_device_card(self):
         card = self._card(self.device_parent, "Device Setting")
@@ -625,7 +875,7 @@ del "%~f0"
         self.emu_combo = ctk.CTkOptionMenu(
             grid,
             variable=self.emu_var,
-            values=list(bot.EMU_PROFILES.keys()) or ["Emulator"],
+            values=[EMU_ALL] + list(bot.EMU_PROFILES.keys()),
             command=self._on_emu_change,
             fg_color=ENTRY,
             button_color=CARAMEL,
@@ -688,6 +938,202 @@ del "%~f0"
         self.advanced_frame = ctk.CTkFrame(card, fg_color=CARD_DARK, corner_radius=14)
         self._build_advanced_fields(self.advanced_frame)
 
+    def _build_notification_card(self):
+        card = self._card(self.device_parent, "Discord Notification")
+        main = ctk.CTkFrame(card, fg_color=CARD)
+        main.pack(fill="x", padx=18, pady=(0, 16))
+        main.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(main, text="ปลายทาง", text_color=TEXT, font=("Segoe UI", 12, "bold")).grid(
+            row=0, column=0, sticky="w", padx=(0, 10), pady=(6, 8)
+        )
+        mode = str(self.notification_config.get("mode") or notification_settings.MODE_OFF)
+        self.notify_mode_var = tk.StringVar(value=NOTIFY_MODE_LABELS.get(mode, NOTIFY_MODE_LABELS[notification_settings.MODE_OFF]))
+        self.notify_mode_menu = ctk.CTkOptionMenu(
+            main,
+            variable=self.notify_mode_var,
+            values=list(NOTIFY_LABEL_MODES),
+            command=self._on_notification_mode_change,
+            fg_color=ENTRY,
+            button_color=CARAMEL,
+            button_hover_color=GOLD,
+            dropdown_fg_color=CARD_DARK,
+            dropdown_hover_color=CARAMEL,
+            text_color=TEXT,
+            dropdown_text_color=TEXT,
+        )
+        self.notify_mode_menu.grid(row=0, column=1, sticky="ew", pady=(6, 8))
+
+        self.notify_webhook_label = ctk.CTkLabel(
+            main, text="Webhook URL", text_color=TEXT, font=("Segoe UI", 12, "bold")
+        )
+        self.notify_webhook_label.grid(row=1, column=0, sticky="w", padx=(0, 10), pady=8)
+        self.notify_webhook_var = tk.StringVar(value=str(self.notification_config.get("webhook_url") or ""))
+        self.notify_webhook_entry = ctk.CTkEntry(
+            main,
+            textvariable=self.notify_webhook_var,
+            placeholder_text="https://discord.com/api/webhooks/...",
+            show="•",
+            fg_color=ENTRY,
+            border_color=LINE,
+            text_color=TEXT,
+            height=36,
+        )
+        self.notify_webhook_entry.grid(row=1, column=1, sticky="ew", pady=8)
+
+        ctk.CTkLabel(main, text="แจ้งทุกรอบ", text_color=TEXT, font=("Segoe UI", 12, "bold")).grid(
+            row=2, column=0, sticky="w", padx=(0, 10), pady=8
+        )
+        self.notify_every_var = tk.StringVar(value=str(int(self.notification_config.get("every_n_loops") or 1)))
+        every_box = ctk.CTkFrame(main, fg_color=CARD)
+        every_box.grid(row=2, column=1, sticky="w", pady=8)
+        ctk.CTkEntry(
+            every_box,
+            textvariable=self.notify_every_var,
+            width=62,
+            height=32,
+            justify="center",
+            fg_color=ENTRY,
+            border_color=LINE,
+            text_color=TEXT,
+        ).pack(side="left")
+        ctk.CTkLabel(every_box, text="รอบ (1 = แจ้งทุกครั้ง)", text_color=MUTED, font=("Segoe UI", 11)).pack(
+            side="left", padx=(8, 0)
+        )
+
+        event_box = ctk.CTkFrame(main, fg_color=CARD_DARK, corner_radius=12)
+        event_box.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 6))
+        event_box.grid_columnconfigure((0, 1, 2), weight=1)
+        self.notify_start_var = tk.BooleanVar(value=bool(self.notification_config.get("notify_start", True)))
+        self.notify_loop_var = tk.BooleanVar(value=bool(self.notification_config.get("notify_loop", True)))
+        self.notify_stop_var = tk.BooleanVar(value=bool(self.notification_config.get("notify_stop", True)))
+        for column, (text, variable) in enumerate(
+            (("เริ่มงาน", self.notify_start_var), ("จบรอบ", self.notify_loop_var), ("หยุดงาน", self.notify_stop_var))
+        ):
+            ctk.CTkSwitch(
+                event_box,
+                text=text,
+                variable=variable,
+                onvalue=True,
+                offvalue=False,
+                progress_color=MINT,
+                fg_color=LINE,
+                text_color=TEXT,
+                font=("Segoe UI", 11, "bold"),
+            ).grid(row=0, column=column, sticky="w", padx=10, pady=10)
+
+        self.notify_help_var = tk.StringVar(value="")
+        ctk.CTkLabel(
+            main,
+            textvariable=self.notify_help_var,
+            text_color=MUTED,
+            justify="left",
+            wraplength=590,
+            font=("Segoe UI", 11),
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 8))
+
+        buttons = ctk.CTkFrame(main, fg_color=CARD)
+        buttons.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        self.notify_save_button = ctk.CTkButton(
+            buttons,
+            text="บันทึก",
+            command=self._save_notification_settings,
+            width=110,
+            fg_color=CARAMEL,
+            hover_color=GOLD,
+            text_color="#2B1D14",
+            corner_radius=10,
+        )
+        self.notify_save_button.pack(side="left")
+        self.notify_test_button = ctk.CTkButton(
+            buttons,
+            text="ทดสอบส่ง",
+            command=self._test_notification,
+            width=110,
+            fg_color=MINT,
+            hover_color="#9BEA79",
+            text_color="#1A2614",
+            corner_radius=10,
+        )
+        self.notify_test_button.pack(side="left", padx=(8, 0))
+        self.notify_status_var = tk.StringVar(value="")
+        self.notify_status_label = ctk.CTkLabel(
+            buttons, textvariable=self.notify_status_var, text_color=MUTED, font=("Segoe UI", 11)
+        )
+        self.notify_status_label.pack(side="left", padx=(12, 0))
+        self._on_notification_mode_change(self.notify_mode_var.get())
+
+    def _on_notification_mode_change(self, selected=None):
+        mode = NOTIFY_LABEL_MODES.get(selected or self.notify_mode_var.get(), notification_settings.MODE_OFF)
+        if mode == notification_settings.MODE_CUSTOM:
+            self.notify_webhook_label.grid()
+            self.notify_webhook_entry.grid()
+            self.notify_help_var.set("Webhook จะถูกเข้ารหัสด้วย Windows DPAPI และใช้ได้เฉพาะบัญชี Windows เครื่องนี้")
+        else:
+            self.notify_webhook_label.grid_remove()
+            self.notify_webhook_entry.grid_remove()
+            self.notify_help_var.set("ปิดการแจ้งเตือนทั้งหมด")
+
+    def _notification_values(self):
+        mode = NOTIFY_LABEL_MODES.get(self.notify_mode_var.get(), notification_settings.MODE_OFF)
+        try:
+            every = int(self.notify_every_var.get().strip() or "1")
+        except ValueError:
+            raise ValueError("จำนวนรอบต้องเป็นตัวเลข")
+        if not 1 <= every <= 1000:
+            raise ValueError("จำนวนรอบต้องอยู่ระหว่าง 1–1,000")
+        return {
+            "mode": mode,
+            "webhook_url": self.notify_webhook_var.get().strip(),
+            "every_n_loops": every,
+            "notify_start": bool(self.notify_start_var.get()),
+            "notify_loop": bool(self.notify_loop_var.get()),
+            "notify_stop": bool(self.notify_stop_var.get()),
+        }
+
+    def _save_notification_settings(self, show_status=True):
+        try:
+            saved = notification_settings.save_settings(self._notification_values())
+        except (OSError, ValueError) as exc:
+            self.notify_status_var.set(str(exc))
+            self.notify_status_label.configure(text_color=BERRY)
+            return False
+        self.notification_config = saved
+        self.notifier.configure(saved)
+        self.notify_every_var.set(str(saved["every_n_loops"]))
+        if show_status:
+            self.notify_status_var.set("บันทึกแล้ว")
+            self.notify_status_label.configure(text_color=MINT)
+        return True
+
+    def _test_notification(self):
+        if not self._save_notification_settings(show_status=False):
+            return
+        if self.notification_config.get("mode") == notification_settings.MODE_OFF:
+            self.notify_status_var.set("กรุณาเลือกปลายทางก่อนทดสอบ")
+            self.notify_status_label.configure(text_color=BERRY)
+            return
+        self.notify_test_button.configure(state="disabled", text="กำลังส่ง...")
+        self.notify_status_var.set("")
+
+        def done(ok, message):
+            def update():
+                if self._closing:
+                    return
+                self.notify_test_button.configure(state="normal", text="ทดสอบส่ง")
+                self.notify_status_var.set(message)
+                self.notify_status_label.configure(text_color=MINT if ok else BERRY)
+            try:
+                self.root.after(0, update)
+            except Exception:
+                pass
+
+        queued = self.notifier.test(screen_label="Premium Test", callback=done)
+        if not queued:
+            self.notify_test_button.configure(state="normal", text="ทดสอบส่ง")
+            self.notify_status_var.set("ส่งรายการทดสอบเข้าคิวไม่ได้")
+            self.notify_status_label.configure(text_color=BERRY)
+
     def _build_advanced_fields(self, parent):
         parent.grid_columnconfigure(1, weight=1)
 
@@ -742,13 +1188,81 @@ del "%~f0"
         self.opt_vars = {}
         main = ctk.CTkFrame(card, fg_color=CARD)
         main.pack(fill="x", padx=18, pady=(0, 10))
-        main.grid_columnconfigure((0, 1), weight=1)
+        main.grid_columnconfigure(1, weight=1)
 
-        options = [
-            ("use_jump", "Jump Assist"),
-            ("use_relay", "Relay Assist"),
-            ("use_faststart", "Fast Start"),
-        ]
+        ctk.CTkLabel(main, text="โหมดตอนวิ่ง", text_color=TEXT, font=("Segoe UI", 13, "bold")).grid(
+            row=0, column=0, sticky="w", padx=(4, 12), pady=(6, 8)
+        )
+        current_mode = bot.configured_run_mode()
+        self.run_mode_var = tk.StringVar(value=RUN_MODE_LABELS.get(current_mode, RUN_MODE_LABELS["jump"]))
+        self.run_mode_menu = ctk.CTkOptionMenu(
+            main,
+            variable=self.run_mode_var,
+            values=list(RUN_LABEL_MODES),
+            fg_color=ENTRY,
+            button_color=CARAMEL,
+            button_hover_color=GOLD,
+            dropdown_fg_color=CARD_DARK,
+            dropdown_hover_color=CARAMEL,
+            text_color=TEXT,
+            dropdown_text_color=TEXT,
+        )
+        self.run_mode_menu.grid(row=0, column=1, sticky="ew", pady=(6, 8))
+
+        delays = ctk.CTkFrame(main, fg_color=CARD_DARK, corner_radius=12)
+        delays.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(2, 8))
+        delays.grid_columnconfigure((1, 3), weight=1)
+        self.jump_delay_var = tk.StringVar(
+            value=_format_delay_range(
+                bot.SETTINGS.get("jump_delay_min", bot.JUMP_DELAY_MIN),
+                bot.SETTINGS.get("jump_delay_max", bot.JUMP_DELAY_MAX),
+            )
+        )
+        self.slide_delay_var = tk.StringVar(
+            value=_format_delay_range(
+                bot.SETTINGS.get("slide_delay_min", bot.SLIDE_DELAY_MIN),
+                bot.SETTINGS.get("slide_delay_max", bot.SLIDE_DELAY_MAX),
+            )
+        )
+        ctk.CTkLabel(delays, text="ดีเลย์กระโดด", text_color=TEXT, font=("Segoe UI", 11, "bold")).grid(
+            row=0, column=0, sticky="w", padx=(12, 6), pady=(10, 4)
+        )
+        ctk.CTkEntry(
+            delays,
+            textvariable=self.jump_delay_var,
+            placeholder_text="0.14-0.72",
+            width=110,
+            fg_color=ENTRY,
+            border_color=LINE,
+            text_color=TEXT,
+            justify="center",
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=(10, 4))
+        ctk.CTkLabel(delays, text="ดีเลย์สไลด์", text_color=TEXT, font=("Segoe UI", 11, "bold")).grid(
+            row=0, column=2, sticky="w", padx=(4, 6), pady=(10, 4)
+        )
+        ctk.CTkEntry(
+            delays,
+            textvariable=self.slide_delay_var,
+            placeholder_text="0.14-0.72",
+            width=110,
+            fg_color=ENTRY,
+            border_color=LINE,
+            text_color=TEXT,
+            justify="center",
+        ).grid(row=0, column=3, sticky="ew", padx=(0, 12), pady=(10, 4))
+        ctk.CTkLabel(
+            delays,
+            text="วินาที • ใส่ค่าเดียว เช่น 0.5 หรือช่วงสุ่ม เช่น 0.14-0.72",
+            text_color=MUTED,
+            font=("Segoe UI", 10),
+        ).grid(row=1, column=0, columnspan=4, sticky="w", padx=12, pady=(0, 10))
+        self.play_mode_status_var = tk.StringVar(value="")
+        self.play_mode_status_label = ctk.CTkLabel(
+            main, textvariable=self.play_mode_status_var, text_color=BERRY, font=("Segoe UI", 10)
+        )
+        self.play_mode_status_label.grid(row=2, column=0, columnspan=2, sticky="w", padx=4)
+
+        options = [("use_relay", "Relay Assist"), ("use_faststart", "Fast Start")]
         for i, (key, text) in enumerate(options):
             var = tk.BooleanVar(value=bool(bot.SETTINGS.get(key, True)))
             self.opt_vars[key] = var
@@ -765,7 +1279,7 @@ del "%~f0"
                 text_color=TEXT,
                 font=("Segoe UI", 13, "bold"),
             )
-            switch.grid(row=i // 2, column=i % 2, sticky="w", padx=4, pady=8)
+            switch.grid(row=3, column=i, sticky="w", padx=4, pady=8)
 
         boosts = ctk.CTkFrame(card, fg_color=CARD_DARK, corner_radius=14)
         boosts.pack(fill="x", padx=18, pady=(4, 16))
@@ -830,7 +1344,22 @@ del "%~f0"
         main = ctk.CTkFrame(card, fg_color=CARD)
         main.pack(fill="x", padx=18, pady=(0, 16))
         main.grid_columnconfigure(1, weight=1)
-        
+
+        # Relic Claim Switch
+        relic_var = tk.BooleanVar(value=bool(bot.SETTINGS.get('use_relic', True)))
+        self.opt_vars['use_relic'] = relic_var
+        ctk.CTkSwitch(
+            main,
+            text="รับ Relic อัตโนมัติหลังจบทุกรอบ",
+            variable=relic_var,
+            onvalue=True,
+            offvalue=False,
+            progress_color=MINT,
+            fg_color=LINE,
+            text_color=TEXT,
+            font=("Segoe UI", 12, "bold"),
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(10, 6))
+
         # Mail Lives Switch
         mail_var = tk.BooleanVar(value=bool(bot.SETTINGS.get('use_mail_lives', False)))
         self.opt_vars['use_mail_lives'] = mail_var
@@ -847,11 +1376,11 @@ del "%~f0"
             font=("Segoe UI", 12, "bold"),
             command=self._on_mail_toggle
         )
-        mail_switch.grid(row=0, column=0, sticky="w", padx=12, pady=(10, 10))
+        mail_switch.grid(row=1, column=0, columnspan=2, sticky="w", padx=12, pady=6)
 
         # Mail min count input frame (shown only if mail_var is True)
         self.mail_limit_frame = ctk.CTkFrame(main, fg_color=CARD)
-        self.mail_limit_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
+        self.mail_limit_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
         
         ctk.CTkLabel(self.mail_limit_frame, text="รับเมื่อมีจดหมายขั้นต่ำ:", text_color=TEXT, font=("Segoe UI", 12)).pack(side="left", padx=(0, 8))
         self.mail_count_var = tk.StringVar(value=str(bot.MAIL_MIN_COUNT or "5"))
@@ -896,26 +1425,7 @@ del "%~f0"
         )
         self.gift_run_btn.pack(fill="x", padx=12, pady=12)
 
-        # 2. Relic Claim Card
-        relic_card = self._card(parent, "ระบบรับรางวัลโบราณวัตถุ (Relic Claim)")
-        relic_main = ctk.CTkFrame(relic_card, fg_color=CARD)
-        relic_main.pack(fill="x", padx=18, pady=(0, 16))
-        
-        self.relic_run_var = tk.StringVar(value="🎁 เริ่มรับรางวัลโบราณวัตถุ")
-        self.relic_run_btn = ctk.CTkButton(
-            relic_main,
-            textvariable=self.relic_run_var,
-            command=self.run_relic_claim_manual,
-            height=46,
-            fg_color=CARAMEL,
-            hover_color=GOLD,
-            text_color="#2B1D14",
-            font=("Segoe UI", 15, "bold"),
-            corner_radius=12
-        )
-        self.relic_run_btn.pack(fill="x", padx=12, pady=12)
-
-        # 3. Send Hearts Card (Beta)
+        # 2. Send Hearts Card (Beta)
         hearts_card = self._card(parent, "ระบบส่งหัวใจ (Send Hearts) (Beta)")
         hearts_main = ctk.CTkFrame(hearts_card, fg_color=CARD)
         hearts_main.pack(fill="x", padx=18, pady=(0, 16))
@@ -1127,31 +1637,6 @@ del "%~f0"
         self.status_var.set("Ready")
         self.status_lbl.configure(text_color=MUTED)
 
-    def run_relic_claim_manual(self):
-        self._apply_config()
-        self.relic_run_btn.configure(state="disabled", text="กำลังเคลม Relic...")
-        self.status_var.set("เคลม Relic...")
-        self.status_lbl.configure(text_color=GOLD)
-        self._log("[app] เริ่มรับรางวัลโบราณวัตถุแบบกำหนดเอง\n")
-        
-        def worker():
-            try:
-                if not bot.check_connection():
-                    self._log("[app] เชื่อมต่อ ADB ไม่ได้ หยุดเคลม\n")
-                    return
-                bot.collect_relic()
-            except Exception as e:
-                self._log(f"[app] ระบบเคลม Relic ทำงานขัดข้อง: {e}\n")
-            finally:
-                self.root.after(0, self._on_relic_claim_done)
-                
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _on_relic_claim_done(self):
-        self.relic_run_btn.configure(state="normal", text="🎁 เริ่มรับรางวัลโบราณวัตถุ")
-        self.status_var.set("Ready")
-        self.status_lbl.configure(text_color=MUTED)
-
     def _build_control_card(self):
         card = self._card(self.control_main_parent, "Run Control")
 
@@ -1180,9 +1665,39 @@ del "%~f0"
             row=0, column=2, sticky="e", padx=(12, 0)
         )
 
+        screen_header = ctk.CTkFrame(card, fg_color=CARD)
+        screen_header.pack(fill="x", padx=18, pady=(0, 8))
+        ctk.CTkLabel(
+            screen_header,
+            text="จอ AutoFarm (1 Key ต่อ 1 จอที่ทำงานพร้อมกัน)",
+            text_color=GOLD,
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side="left", anchor="w")
+        self.auto_refresh_btn = ctk.CTkButton(
+            screen_header,
+            text="⟳ รีเฟรชหาจอ",
+            command=self._refresh_instances,
+            width=104,
+            height=30,
+            fg_color=CARAMEL,
+            hover_color=GOLD,
+            text_color="#2B1D14",
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=10,
+        )
+        self.auto_refresh_btn.pack(side="right")
+        self.screen_rows_frame = ctk.CTkFrame(card, fg_color=CARD_DARK, corner_radius=14)
+        self.screen_rows_frame.pack(fill="x", padx=18, pady=(0, 12))
+        ctk.CTkLabel(
+            self.screen_rows_frame,
+            text="กำลังค้นหาจอ LDPlayer และ MuMu...",
+            text_color=MUTED,
+            font=("Segoe UI", 11),
+        ).pack(padx=12, pady=12)
+
         self.toggle_btn = ctk.CTkButton(
             card,
-            text="▶ Run",
+            text="▶ เริ่มทุกจอที่มีสิทธิ์",
             command=self.toggle,
             height=58,
             fg_color=MINT,
@@ -1193,7 +1708,7 @@ del "%~f0"
         )
         self.toggle_btn.pack(fill="x", padx=18, pady=(0, 12))
 
-        self.coins_var = tk.StringVar(value="Coin: -    Total: 0")
+        self.coins_var = tk.StringVar(value="Coin total รวมทุกจอ: 0")
         coin = ctk.CTkFrame(card, fg_color=GOLD, corner_radius=999)
         coin.pack(fill="x", padx=18, pady=(0, 14))
         ctk.CTkLabel(
@@ -1229,24 +1744,30 @@ del "%~f0"
         self.log.configure(state="disabled")
 
     def _init_emu_default(self):
-        names = list(bot.EMU_PROFILES.keys())
-        selected = names[0] if names else ""
-        for name in names:
-            try:
-                if bot.EMU_PROFILES[name]["find_adb"]():
-                    selected = name
-                    break
-            except Exception:
-                pass
-        if selected:
-            self.emu_var.set(selected)
-            self._on_emu_change(selected)
+        self.emu_var.set(EMU_ALL)
+        self._on_emu_change(EMU_ALL)
 
     def _on_emu_change(self, selected=None):
         emu = (selected or self.emu_var.get()).strip()
         if not emu:
             return
-        adb_path = bot.adb_path_for_emu(emu)
+        if self.multi_farm.any_running():
+            if self.active_emu:
+                self.emu_var.set(self.active_emu)
+            self._log("[app] กรุณาหยุด AutoFarm ทุกจอก่อนเปลี่ยน Emulator\n")
+            return
+        self.active_emu = emu
+        if emu == EMU_ALL:
+            adb_path = next(
+                (
+                    bot.adb_path_for_emu(name)
+                    for name in bot.EMU_PROFILES
+                    if bot.EMU_PROFILES[name]["find_adb"]()
+                ),
+                bot.adb_path_for_emu(emu),
+            )
+        else:
+            adb_path = bot.adb_path_for_emu(emu)
         self.adb_var.set(adb_path)
         bot.ADB_PATH = adb_path
         self.dev_var.set("")
@@ -1257,18 +1778,34 @@ del "%~f0"
         emu = self.emu_var.get().strip()
         if not emu:
             return
+        if self.multi_farm.any_running():
+            self._log("[app] กรุณาหยุด AutoFarm ทุกจอก่อนค้นหา Instance ใหม่\n")
+            return
         self.refresh_btn.configure(state="disabled", text="...")
+        self.auto_refresh_btn.configure(state="disabled", text="กำลังค้นหา...")
         self.inst_combo.configure(values=["กำลังค้นหา..."])
         self.inst_var.set("กำลังค้นหา...")
         self.inst_serials = {}
+        self.instance_meta = {}
 
         def worker():
-            serials = bot.list_emu_instances(emu)
+            def instance_order(item):
+                value = str(item.get("serial") or "")
+                try:
+                    port = int(value.rsplit(":", 1)[-1] if ":" in value else value.rsplit("-", 1)[-1])
+                except (TypeError, ValueError):
+                    port = 999999
+                brand = 0 if item.get("emu") == "LDPlayer" else 1
+                return (brand, port, value)
+
+            instances = sorted(bot.discover_emu_instances(emu), key=instance_order)
 
             def done():
                 try:
-                    labels = [bot._label_for_serial(serial, emu) for serial in serials]
+                    labels = [item["label"] for item in instances]
+                    serials = [item["serial"] for item in instances]
                     self.inst_serials = dict(zip(labels, serials))
+                    self.instance_meta = {item["serial"]: item for item in instances}
                     if labels:
                         self.inst_combo.configure(values=labels)
                         self.inst_var.set(labels[0])
@@ -1278,9 +1815,13 @@ del "%~f0"
                         self.inst_var.set("ไม่พบ instance")
                         self.dev_var.set("")
                         bot.ADB_DEVICE = None
-                    self.refresh_btn.configure(state="normal", text="⟳")
+                    self.screen_serials = list(serials)
+                    self._render_screen_rows(self.screen_serials)
                 except Exception:
                     pass
+                finally:
+                    self.refresh_btn.configure(state="normal", text="⟳")
+                    self.auto_refresh_btn.configure(state="normal", text="⟳ รีเฟรชหาจอ")
 
             try:
                 self.root.after(0, done)
@@ -1293,8 +1834,117 @@ del "%~f0"
         label = selected or self.inst_var.get()
         serial = self.inst_serials.get(label)
         if serial:
+            meta = self.instance_meta.get(serial, {})
+            adb_path = str(meta.get("adb_path") or self.adb_var.get()).strip()
+            if adb_path:
+                self.adb_var.set(adb_path)
+                bot.ADB_PATH = adb_path
             self.dev_var.set(serial)
             bot.ADB_DEVICE = serial
+
+    def _render_screen_rows(self, serials):
+        frame = getattr(self, "screen_rows_frame", None)
+        if frame is None:
+            return
+        previous = self.screen_rows
+        for child in frame.winfo_children():
+            child.destroy()
+        self.screen_rows = {}
+        keys = self._available_screen_keys()
+        serials = list(serials or [])
+        if not serials:
+            ctk.CTkLabel(
+                frame,
+                text="ไม่พบจอ Emulator ที่กำลังเปิดอยู่",
+                text_color=MUTED,
+                font=("Segoe UI", 11),
+            ).pack(padx=12, pady=12)
+            self._refresh_multi_state()
+            return
+
+        for index, serial in enumerate(serials):
+            assigned = keys[index] if index < len(keys) else None
+            old = previous.get(serial, {})
+            meta = self.instance_meta.get(serial, {})
+            row = ctk.CTkFrame(frame, fg_color=CARD, corner_radius=11, border_width=1, border_color=LINE)
+            row.pack(fill="x", padx=8, pady=(8 if index == 0 else 3, 8 if index == len(serials) - 1 else 3))
+            row.grid_columnconfigure(0, weight=1)
+
+            friendly = str(meta.get("label") or bot._label_for_serial(serial, meta.get("emu") or "Emulator"))
+            title = f"เครื่อง {index + 1}  •  {friendly}"
+            ctk.CTkLabel(
+                row,
+                text=title,
+                text_color=TEXT,
+                font=("Segoe UI", 11, "bold"),
+                anchor="w",
+            ).grid(row=0, column=0, sticky="ew", padx=(10, 6), pady=(8, 1))
+            key_text = (
+                f"Key: {screen_license_store.mask_key(assigned['key'])}"
+                if assigned
+                else "ล็อกอยู่ — เพิ่ม Key เพื่อเปิดจอนี้"
+            )
+            ctk.CTkLabel(
+                row,
+                text=key_text,
+                text_color=MUTED if assigned else BERRY,
+                font=("Segoe UI", 10),
+                anchor="w",
+            ).grid(row=1, column=0, sticky="ew", padx=(10, 6), pady=(0, 2))
+
+            running = self.multi_farm.is_running(serial)
+            status_var = tk.StringVar(value=str(old.get("status") or ("กำลังทำงาน" if running else "พร้อม" if assigned else "ไม่มีสิทธิ์")))
+            coin_var = tk.StringVar(value=str(old.get("coin_text") or "Coin: -  •  Total: 0"))
+            status_label = ctk.CTkLabel(
+                row,
+                textvariable=status_var,
+                text_color=MINT if running else MUTED if assigned else BERRY,
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+            )
+            status_label.grid(row=2, column=0, sticky="ew", padx=(10, 6), pady=(0, 1))
+            ctk.CTkLabel(
+                row,
+                textvariable=coin_var,
+                text_color=GOLD,
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+            ).grid(row=3, column=0, sticky="ew", padx=(10, 6), pady=(0, 8))
+
+            button = ctk.CTkButton(
+                row,
+                text="■ หยุด" if running else "▶ เริ่ม" if assigned else "เพิ่ม Key",
+                command=lambda value=serial: self._toggle_screen(value),
+                width=72,
+                height=34,
+                state="normal" if assigned else "disabled",
+                fg_color=BERRY if running else MINT if assigned else LINE,
+                hover_color="#FF8787" if running else "#9BEA79",
+                text_color="white" if running else "#1A2614",
+                corner_radius=10,
+            )
+            button.grid(row=0, column=1, rowspan=4, padx=(4, 10), pady=10)
+
+            self.screen_rows[serial] = {
+                "serial": serial,
+                "emu": str(meta.get("emu") or "Emulator"),
+                "adb_path": str(meta.get("adb_path") or self.adb_var.get()).strip(),
+                "label": f"เครื่อง {index + 1}",
+                "friendly": friendly,
+                "key": assigned["key"] if assigned else "",
+                "key_id": assigned["id"] if assigned else "",
+                "status_var": status_var,
+                "status_label": status_label,
+                "status": status_var.get(),
+                "coin_var": coin_var,
+                "coin_text": coin_var.get(),
+                "last_coin": old.get("last_coin"),
+                "total": int(old.get("total") or 0),
+                "captcha": int(old.get("captcha") or 0),
+                "button": button,
+                "stop_requested": bool(old.get("stop_requested", False)),
+            }
+        self._refresh_multi_state()
 
     def _toggle_advanced(self):
         self.advanced_open = not self.advanced_open
@@ -1316,6 +1966,29 @@ del "%~f0"
         bot.ADB_DEVICE = self.dev_var.get().strip() or None
         for key, var in getattr(self, "opt_vars", {}).items():
             bot.SETTINGS[key] = bool(var.get())
+        mode = RUN_LABEL_MODES.get(self.run_mode_var.get(), "jump")
+        bot.SETTINGS["run_mode"] = mode
+        bot.SETTINGS["use_jump"] = mode in {"jump", "jump_slide"}
+        play_valid = True
+        try:
+            jump_min, jump_max = _parse_delay_range(self.jump_delay_var.get(), "ดีเลย์กระโดด")
+            slide_min, slide_max = _parse_delay_range(self.slide_delay_var.get(), "ดีเลย์สไลด์")
+        except ValueError as exc:
+            play_valid = False
+            self.play_mode_status_var.set(str(exc))
+            self.play_mode_status_label.configure(text_color=BERRY)
+        else:
+            bot.SETTINGS.update(
+                {
+                    "jump_delay_min": jump_min,
+                    "jump_delay_max": jump_max,
+                    "slide_delay_min": slide_min,
+                    "slide_delay_max": slide_max,
+                }
+            )
+            self.jump_delay_var.set(_format_delay_range(jump_min, jump_max))
+            self.slide_delay_var.set(_format_delay_range(slide_min, slide_max))
+            self.play_mode_status_var.set("")
         multi_selected = any(
             bool(bot.SETTINGS.get("multi_" + boost["key"], False))
             for boost in getattr(bot, "MULTI_BOOSTS", [])
@@ -1333,6 +2006,7 @@ del "%~f0"
         count = max(1, min(12, count))
         self.tr_extract_count_var.set(str(count))
         bot.SETTINGS["treasure_extract_count"] = count
+        return play_valid
 
     def test_connection(self):
         self._apply_config()
@@ -1347,87 +2021,6 @@ del "%~f0"
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def toggle(self):
-        if not self.running:
-            self.start_bot()
-        else:
-            self.stop_bot()
-
-    def start_bot(self):
-        self._apply_config()
-        try:
-            max_loops = max(0, int(self.loops_var.get().strip() or "0"))
-        except ValueError:
-            max_loops = 0
-        self._max_loops = max_loops
-        bot.STOP_FLAG.clear()
-        self.running = True
-        self.toggle_btn.configure(text="■ Stop", fg_color=BERRY, hover_color="#FF8787", text_color="white")
-        self.status_var.set("Running")
-        self.status_lbl.configure(text_color=MINT)
-        self.coins_var.set("Coin: -    Total: 0")
-        bot.CAPTCHA_COUNT = 0
-        self.captcha_var.set("พบแคปช่าทั้งหมด: 0 ครั้ง")
-        if max_loops:
-            self._log(f"[app] Run started: {max_loops} loop(s)\n")
-        else:
-            self._log("[app] Run started: continuous mode\n")
-
-        def worker():
-            heartbeat_stop = threading.Event()
-            try:
-                if license_core.is_enabled():
-                    # self._log("[license] กำลังตรวจสิทธิ์ใช้งาน...\n")
-                    ok, info = license_core.check_license(force_online=True)
-                    if not ok:
-                        # self._log(f"[license] ใช้งานไม่ได้: {info}\n")
-                        self.root.after(0, lambda: self._set_license_status(str(info), BERRY))
-                        return
-                    msg = self._license_text(info)
-                    # self._log(f"[license] ตรวจสิทธิ์ผ่าน: {msg}\n")
-                    self.root.after(0, lambda: (self._set_license_info(info), self._set_license_status(msg, MINT)))
-                    self._start_license_heartbeat(heartbeat_stop)
-
-                if not bot.check_connection():
-                    self._log("[app] เชื่อมต่อ ADB ไม่ได้ หยุด\n")
-                    return
-                bot.run_state_machine(max_loops, on_loop_done=self._on_loop_done)
-            except Exception as exc:
-                if RELEASE_MODE:
-                    self._log("[app] บอทหยุดเพราะข้อผิดพลาด กรุณาตรวจอีมูเลเตอร์และลองใหม่\n")
-                else:
-                    import traceback
-                    self._log(f"[app] บอทหยุดเพราะข้อผิดพลาด: {exc}\n{traceback.format_exc()}\n")
-            finally:
-                try:
-                    self.root.after(0, self._on_bot_stopped)
-                except Exception:
-                    pass
-                heartbeat_stop.set()
-
-        self.bot_thread = threading.Thread(target=worker, daemon=True)
-        self.bot_thread.start()
-
-    def _start_license_heartbeat(self, stop_event):
-        def heartbeat():
-            while not stop_event.wait(600):
-                ok, info = license_core.check_license(force_online=True)
-                if ok:
-                    msg = self._license_text(info)
-                    self.root.after(0, lambda i=info, m=msg: (self._set_license_info(i), self._set_license_status(m, MINT)))
-                    continue
-                # self._log(f"[license] สิทธิ์ไม่ผ่านระหว่างใช้งาน: {info}\n")
-                bot.STOP_FLAG.set()
-                self.root.after(0, lambda: self._set_license_status(str(info), BERRY))
-                break
-
-        threading.Thread(target=heartbeat, daemon=True).start()
-
-    def _on_loop_done(self, loops_done):
-        if self._max_loops:
-            remaining = max(0, self._max_loops - loops_done)
-            self.root.after(0, lambda: self.loops_var.set(str(remaining)))
-
     def _update_coins(self, coins, total):
         last = f"{coins:,}" if coins is not None else "N/A"
         self.coins_var.set(f"Coin: {last}    Total: {total:,}")
@@ -1435,24 +2028,291 @@ del "%~f0"
     def _update_captcha(self, cnt):
         self.captcha_var.set(f"พบแคปช่าทั้งหมด: {cnt} ครั้ง")
 
-    def stop_bot(self):
-        bot.STOP_FLAG.set()
-        self.status_var.set("Stopping...")
-        self.status_lbl.configure(text_color=GOLD)
-        self.toggle_btn.configure(state="disabled")
-        self._log("[app] Stop requested. Waiting for current step...\n")
+    def toggle(self):
+        if self.multi_farm.any_running():
+            self.stop_bot()
+        else:
+            self.start_bot()
 
-    def _on_bot_stopped(self):
-        self.running = False
-        self.toggle_btn.configure(
-            text="▶ Run",
-            fg_color=MINT,
-            hover_color="#9BEA79",
-            text_color="#1A2614",
-            state="normal",
-        )
-        self.status_var.set("Ready")
-        self.status_lbl.configure(text_color=MUTED)
+    def _worker_options(self):
+        if not self._apply_config():
+            raise ValueError(self.play_mode_status_var.get() or "ค่าดีเลย์ไม่ถูกต้อง")
+        try:
+            max_loops = max(0, int(self.loops_var.get().strip() or "0"))
+        except ValueError:
+            max_loops = 0
+        return {
+            "adb_path": self.adb_var.get().strip(),
+            "settings": dict(bot.SETTINGS),
+            "max_loops": max_loops,
+            "mail_min_count": int(bot.MAIL_MIN_COUNT or 0),
+        }
+
+    def start_bot(self):
+        if any(
+            bool(getattr(self, name, False))
+            for name in ("gift_running", "hearts_running", "tr_extract_running")
+        ):
+            self._log("[app] กรุณาหยุดงานในหน้า Claim item ก่อนเริ่ม AutoFarm\n")
+            return
+        try:
+            options = self._worker_options()
+        except ValueError as exc:
+            self._log(f"[app] เริ่ม AutoFarm ไม่ได้: {exc}\n")
+            return
+        started = 0
+        for serial, row in self.screen_rows.items():
+            if row.get("key") and not self.multi_farm.is_running(serial):
+                if self._start_screen(serial, options=options):
+                    started += 1
+        if started:
+            mode = f"{options['max_loops']} รอบ" if options["max_loops"] else "วนไม่จำกัด"
+            self._log(f"[app] เริ่ม AutoFarm {started} จอ ({mode})\n")
+        else:
+            self._log("[app] ไม่มีจอที่พร้อมเริ่ม — เปิด LDPlayer/MuMu และเพิ่ม Key ให้ครบจำนวนจอ\n")
+        self._refresh_multi_state()
+
+    def _start_screen(self, serial, options=None):
+        row = self.screen_rows.get(serial)
+        if not row or not row.get("key") or self.multi_farm.is_running(serial):
+            return False
+        if options is None:
+            try:
+                options = self._worker_options()
+            except ValueError as exc:
+                self._set_screen_status(serial, f"ตั้งค่าไม่ถูกต้อง: {exc}", BERRY)
+                return False
+        row["stop_requested"] = False
+        row["notify_started"] = False
+        row["notify_stop_reason"] = ""
+        row["loops_done"] = 0
+        row["max_loops"] = int(options.get("max_loops") or 0)
+        row["last_coin"] = None
+        row["total"] = 0
+        row["captcha"] = 0
+        row["coin_text"] = "Coin: -  •  Total: 0"
+        row["coin_var"].set(row["coin_text"])
+        self._set_screen_status(serial, "กำลังเริ่ม...", GOLD)
+        row["button"].configure(state="disabled", text="กำลังเริ่ม...", fg_color=GOLD, text_color="#2B1D14")
+        try:
+            self.multi_farm.start(
+                serial=serial,
+                key=row["key"],
+                adb_path=row.get("adb_path") or options["adb_path"],
+                settings=options["settings"],
+                max_loops=options["max_loops"],
+                mail_min_count=options["mail_min_count"],
+            )
+        except Exception as exc:
+            self._set_screen_status(serial, f"เริ่มไม่ได้: {exc}", BERRY)
+            self._set_screen_button(serial, running=False)
+            return False
+        self._refresh_multi_state()
+        return True
+
+    def _toggle_screen(self, serial):
+        if self.multi_farm.is_running(serial):
+            row = self.screen_rows.get(serial)
+            if row:
+                row["stop_requested"] = True
+                self._set_screen_status(serial, "กำลังหยุด...", GOLD)
+                row["button"].configure(state="disabled", text="กำลังหยุด...")
+            self.multi_farm.stop(serial, force_after=2.0)
+            self._log(f"[{row.get('label', serial) if row else serial}] ส่งคำสั่งหยุดแล้ว\n")
+            return
+        self._start_screen(serial)
+
+    def stop_bot(self):
+        running = self.multi_farm.running_serials()
+        for serial in running:
+            row = self.screen_rows.get(serial)
+            if row:
+                row["stop_requested"] = True
+                self._set_screen_status(serial, "กำลังหยุด...", GOLD)
+                row["button"].configure(state="disabled", text="กำลังหยุด...")
+        self.multi_farm.stop_all(force_after=2.0)
+        self._log(f"[app] หยุด AutoFarm ทั้งหมดทันที ({len(running)} จอ)\n")
+        self._refresh_multi_state()
+
+    def _set_screen_status(self, serial, text, color=MUTED):
+        row = self.screen_rows.get(serial)
+        if not row:
+            return
+        row["status"] = str(text)
+        row["status_var"].set(str(text))
+        try:
+            row["status_label"].configure(text_color=color)
+        except Exception:
+            pass
+
+    def _set_screen_button(self, serial, running=None):
+        row = self.screen_rows.get(serial)
+        if not row:
+            return
+        if running is None:
+            running = self.multi_farm.is_running(serial)
+        if running:
+            row["button"].configure(
+                text="■ หยุด",
+                state="normal",
+                fg_color=BERRY,
+                hover_color="#FF8787",
+                text_color="white",
+            )
+        else:
+            enabled = bool(row.get("key"))
+            row["button"].configure(
+                text="▶ เริ่ม" if enabled else "เพิ่ม Key",
+                state="normal" if enabled else "disabled",
+                fg_color=MINT if enabled else LINE,
+                hover_color="#9BEA79",
+                text_color="#1A2614",
+            )
+
+    def _on_multi_worker_event(self, serial, event):
+        if self._closing:
+            return
+        try:
+            self.root.after(0, lambda s=serial, e=dict(event): self._handle_multi_worker_event(s, e))
+        except Exception:
+            pass
+
+    def _notify_screen_event(self, serial, event_type, **details):
+        row = self.screen_rows.get(serial)
+        if not row:
+            return False
+        try:
+            return self.notifier.emit(
+                event_type,
+                screen_label=row.get("label") or serial,
+                serial=serial,
+                **details,
+            )
+        except Exception:
+            return False
+
+    def _handle_multi_worker_event(self, serial, event):
+        row = self.screen_rows.get(serial)
+        event_name = str(event.get("event") or "")
+        if event_name == "log":
+            self._enqueue_screen_log(serial, event.get("message") or "")
+        elif event_name == "ready":
+            self._set_screen_status(serial, "กำลังทำงาน", MINT)
+            self._set_screen_button(serial, running=True)
+            if row and not row.get("notify_started"):
+                row["notify_started"] = True
+                self._notify_screen_event(serial, "start", max_loops=int(row.get("max_loops") or 0))
+        elif event_name == "coin" and row:
+            coins = event.get("coins")
+            try:
+                total = int(event.get("total") or 0)
+            except (TypeError, ValueError):
+                total = 0
+            row["last_coin"] = coins
+            row["total"] = total
+            last_text = f"{int(coins):,}" if coins is not None else "N/A"
+            row["coin_text"] = f"Coin: {last_text}  •  Total: {total:,}"
+            row["coin_var"].set(row["coin_text"])
+        elif event_name == "captcha" and row:
+            try:
+                row["captcha"] = int(event.get("count") or 0)
+            except (TypeError, ValueError):
+                row["captcha"] = 0
+        elif event_name == "loop" and row:
+            loops_done = int(event.get("loops_done") or 0)
+            maximum = int(event.get("max_loops") or 0)
+            row["loops_done"] = loops_done
+            row["max_loops"] = maximum
+            suffix = f" / {maximum}" if maximum else ""
+            self._set_screen_status(serial, f"กำลังทำงาน • รอบ {loops_done}{suffix}", MINT)
+            self._notify_screen_event(
+                serial,
+                "loop",
+                loops_done=loops_done,
+                max_loops=maximum,
+                coins=row.get("last_coin"),
+                total=int(row.get("total") or 0),
+            )
+        elif event_name == "license" and not event.get("ok", False):
+            message = str(event.get("message") or "Key ใช้งานไม่ได้")
+            if row:
+                row["notify_stop_reason"] = "license"
+            self._set_screen_status(serial, "Key ใช้งานไม่ได้", BERRY)
+            self._log(f"[{row.get('label', serial) if row else serial}] license: {message}\n")
+        elif event_name == "error":
+            message = str(event.get("message") or "worker error")
+            if row:
+                row["notify_stop_reason"] = "error"
+            self._set_screen_status(serial, f"ผิดพลาด: {message}", BERRY)
+            self._log(f"[{row.get('label', serial) if row else serial}] {message}\n")
+        elif event_name == "process_exit":
+            exit_code = int(event.get("exit_code") or 0)
+            stopped = bool(row and row.get("stop_requested"))
+            stop_reason = "manual" if stopped else (row.get("notify_stop_reason") if row else "")
+            if not stop_reason:
+                stop_reason = "completed" if exit_code == 0 else "error"
+            self._notify_screen_event(
+                serial,
+                "stop",
+                reason=stop_reason,
+                loops_done=int(row.get("loops_done") or 0) if row else 0,
+                total=int(row.get("total") or 0) if row else 0,
+            )
+            if row:
+                row["stop_requested"] = False
+                row["notify_started"] = False
+                row["notify_stop_reason"] = ""
+            if stopped:
+                self._set_screen_status(serial, "หยุดแล้ว", MUTED)
+            elif exit_code == 0:
+                self._set_screen_status(serial, "ทำงานเสร็จแล้ว", MINT)
+            else:
+                current = row.get("status", "") if row else ""
+                if "ผิดพลาด" not in current and "Key" not in current:
+                    self._set_screen_status(serial, f"หยุดด้วยข้อผิดพลาด ({exit_code})", BERRY)
+            self._set_screen_button(serial, running=False)
+        self._refresh_multi_state()
+
+    def _enqueue_screen_log(self, serial, message):
+        row = self.screen_rows.get(serial)
+        prefix = row.get("label", serial) if row else serial
+        for line in str(message).splitlines():
+            line = line.strip()
+            if RELEASE_MODE and self._is_internal_log_line(line):
+                continue
+            if not line or not self._should_show_bot_log(line):
+                continue
+            self.log_queue.put(f"[{prefix}] {self._friendly_bot_log(line)}\n")
+
+    def _refresh_multi_state(self):
+        if not hasattr(self, "toggle_btn"):
+            return
+        running_count = len(self.multi_farm.running_serials())
+        self.running = running_count > 0
+        if running_count:
+            self.toggle_btn.configure(
+                text=f"■ หยุดทั้งหมด ({running_count} จอ)",
+                state="normal",
+                fg_color=BERRY,
+                hover_color="#FF8787",
+                text_color="white",
+            )
+            self.status_var.set(f"กำลังทำงาน {running_count} จอ")
+            self.status_lbl.configure(text_color=MINT)
+        else:
+            self.toggle_btn.configure(
+                text="▶ เริ่มทุกจอที่มีสิทธิ์",
+                state="normal",
+                fg_color=MINT,
+                hover_color="#9BEA79",
+                text_color="#1A2614",
+            )
+            self.status_var.set("Ready")
+            self.status_lbl.configure(text_color=MUTED)
+        total = sum(int(row.get("total") or 0) for row in self.screen_rows.values())
+        captcha = sum(int(row.get("captcha") or 0) for row in self.screen_rows.values())
+        self.coins_var.set(f"Coin total รวมทุกจอ: {total:,}")
+        self.captcha_var.set(f"พบแคปช่าทั้งหมด: {captcha} ครั้ง")
 
     def _enqueue_bot_log(self, message):
         for line in str(message).splitlines():
@@ -1612,8 +2472,21 @@ del "%~f0"
         self.root.after(220, self._poll_log)
 
     def on_close(self):
+        for serial in self.multi_farm.running_serials():
+            row = self.screen_rows.get(serial)
+            self._notify_screen_event(
+                serial,
+                "stop",
+                reason="app_closed",
+                loops_done=int(row.get("loops_done") or 0) if row else 0,
+                total=int(row.get("total") or 0) if row else 0,
+            )
+        self._closing = True
+        self.multi_farm.stop_all(force_after=0.3)
         bot.STOP_FLAG.set()
         time.sleep(0.1)
+        self.multi_farm.terminate_all()
+        self.notifier.close(timeout=0.5)
         self.root.destroy()
 
 

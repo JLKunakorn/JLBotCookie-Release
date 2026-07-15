@@ -27,7 +27,11 @@ except Exception:
     pass
 
 
-import JLmain  # noqa: E402
+if "--premium-worker" in sys.argv:
+    import premium_worker  # noqa: E402
 
+    premium_worker.main()
+else:
+    import JLmain  # noqa: E402
 
-JLmain.main()
+    JLmain.main()
