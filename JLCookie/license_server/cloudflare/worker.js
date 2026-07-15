@@ -94,12 +94,13 @@ function zipUrlFromDownloadUrl(value) {
 function releaseDownloadInfo(env, tier = "premium") {
   if (tier === "promax") {
     const downloadUrl = cleanText(env.PROMAX_DOWNLOAD_URL || env.DOWNLOAD_URL);
+    const zipUrl = cleanText(env.PROMAX_ZIP_URL) || zipUrlFromDownloadUrl(downloadUrl);
     return {
       version: env.PROMAX_APP_VERSION || "V1.1.0 ProMax",
       download_url: downloadUrl,
       download_name: fileNameFromUrl(downloadUrl, "(Beta)JLBotPromax.exe"),
-      zip_url: "",
-      zip_name: "",
+      zip_url: zipUrl,
+      zip_name: fileNameFromUrl(zipUrl, "(Beta)JLBotPromax.zip"),
     };
   }
 
@@ -441,6 +442,7 @@ async function verify(req, env) {
   const body = await readJson(req);
   const code = cleanCode(body.key);
   const hwid = cleanText(body.hwid);
+  const hwidV2 = cleanText(body.hwid_v2);
   const now = Math.floor(Date.now() / 1000);
   const deny = (msg) => signPayload(env, { ok: false, msg, hwid, iat: now });
 
@@ -470,18 +472,35 @@ async function verify(req, env) {
   if (row.status !== "delivered" || !row.expires_at) return deny("คีย์นี้ยังไม่ได้ถูกส่งจากร้าน");
   if (now > row.expires_at) return deny("คีย์หมดอายุ");
 
-  const releaseInfo = releaseDownloadInfo(env, row.tier || "premium");
-  const seatRows = await env.DB.prepare("SELECT hwid FROM lic_seats WHERE code = ?").bind(code).all();
-  const seats = (seatRows.results || []).map((r) => r.hwid);
-  if (!seats.includes(hwid) && seats.length >= Number(row.max_seats || 1)) {
+  const keyTier = resolveTier(row.tier || "premium");
+  const releaseInfo = releaseDownloadInfo(env, keyTier);
+  const contentKey = cleanText(env.CONTENT_KEY);
+  if (keyTier === "promax" && !/^[0-9a-fA-F]{64}$/.test(contentKey)) {
+    return deny("ระบบ ProMax ยังไม่พร้อมใช้งาน กรุณาติดต่อร้าน");
+  }
+
+  const seatRows = await env.DB.prepare("SELECT hwid, hwid_v2 FROM lic_seats WHERE code = ?").bind(code).all();
+  const seats = seatRows.results || [];
+  const matchedSeat = seats.find(
+    (seat) => seat.hwid === hwid || (hwidV2 && seat.hwid_v2 === hwidV2),
+  );
+  if (!matchedSeat && seats.length >= Number(row.max_seats || 1)) {
     return deny("คีย์นี้ใช้ครบจำนวนเครื่องแล้ว");
   }
 
-  await env.DB.prepare(
-    `INSERT INTO lic_seats(code, hwid, first_seen, last_seen)
-     VALUES(?, ?, ?, ?)
-     ON CONFLICT(code, hwid) DO UPDATE SET last_seen = excluded.last_seen`,
-  ).bind(code, hwid, now, now).run();
+  if (matchedSeat) {
+    await env.DB.prepare(
+      `UPDATE lic_seats
+       SET last_seen = ?,
+           hwid_v2 = CASE WHEN hwid_v2 IS NULL OR hwid_v2 = '' THEN ? ELSE hwid_v2 END
+       WHERE code = ? AND hwid = ?`,
+    ).bind(now, hwidV2 || null, code, matchedSeat.hwid).run();
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO lic_seats(code, hwid, hwid_v2, first_seen, last_seen)
+       VALUES(?, ?, ?, ?, ?)`,
+    ).bind(code, hwid, hwidV2 || null, now, now).run();
+  }
 
   return signPayload(env, {
     ok: true,
@@ -490,7 +509,7 @@ async function verify(req, env) {
     // "tier" stays "pro" for backward compatibility with already-shipped clients
     // that gate on tier === "pro". Real Premium/Promax tier is in "key_tier".
     tier: "pro",
-    key_tier: row.tier || "premium",
+    key_tier: keyTier,
     exp: row.expires_at,
     delivered_at: row.delivered_at,
     hwid,
@@ -501,6 +520,7 @@ async function verify(req, env) {
     download_name: releaseInfo.download_name,
     zip_url: releaseInfo.zip_url,
     zip_name: releaseInfo.zip_name,
+    ...(keyTier === "promax" ? { content_key: contentKey } : {}),
   });
 }
 
