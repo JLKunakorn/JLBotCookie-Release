@@ -85,15 +85,71 @@ const plansResponse = await worker.fetch(
   env,
 );
 const plans = await plansResponse.json();
-const expectedPrices = { "1d": 15, "7d": 70, "30d": 250, "1d_promax": 49, "7d_promax": 199, "30d_promax": 399 };
-assert(plans.plans?.length === 6, "all six shop plans must be available");
+const expectedPrices = {
+  "1d": 15,
+  "3d": 35,
+  "7d": 70,
+  "30d": 250,
+  "lifetime": 599,
+  "1d_promax": 59,
+  "3d_promax": 149,
+  "7d_promax": 199,
+  "30d_promax": 599,
+  "lifetime_promax": 999,
+};
+assert(plans.plans?.length === 10, "all ten shop plans must be available");
 for (const plan of plans.plans) {
   assert(plan.amount === expectedPrices[plan.code], `price mismatch for ${plan.code}`);
 }
+assert(plans.plans.find((plan) => plan.code === "lifetime")?.duration_days === 0, "Premium Lifetime duration mismatch");
+assert(plans.plans.find((plan) => plan.code === "lifetime_promax")?.duration_days === 0, "ProMax Lifetime duration mismatch");
+
+const signingKeys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+const privateKeyB64 = Buffer.from(await crypto.subtle.exportKey("pkcs8", signingKeys.privateKey)).toString("base64");
+const lifetimeRow = {
+  code: "JL-LIFETIME-TEST",
+  plan: "lifetime",
+  tier: "premium",
+  duration_days: 0,
+  expires_at: 0,
+  max_seats: 1,
+  revoked: 0,
+  status: "delivered",
+  delivered_at: Math.floor(Date.now() / 1000),
+};
+const lifetimeDb = {
+  prepare(sql) {
+    const query = String(sql).replace(/\s+/g, " ").trim().toLowerCase();
+    return {
+      bind() {
+        return {
+          first: async () => query.includes("from lic_keys") ? lifetimeRow : null,
+          all: async () => ({ results: [] }),
+          run: async () => ({ meta: { changes: 1 } }),
+        };
+      },
+    };
+  },
+};
+const lifetimeResponse = await worker.fetch(
+  new Request("https://example.test/api/verify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key: lifetimeRow.code, hwid: "HWID-LIFETIME-TEST" }),
+  }),
+  { DB: lifetimeDb, PRIV_PKCS8_B64: privateKeyB64 },
+);
+const lifetimeEnvelope = await lifetimeResponse.json();
+const lifetimePayload = JSON.parse(Buffer.from(lifetimeEnvelope.payload_b64, "base64").toString("utf8"));
+assert(lifetimePayload.ok === true && lifetimePayload.exp === 0, "Lifetime key must verify without an expiry timestamp");
 
 const publicHtml = await fs.readFile(new URL("./public/index.html", import.meta.url), "utf8");
 assert(publicHtml.includes('data-reset-device="${esc(order.key_code)}"'), "customer reset button missing");
 assert(publicHtml.includes('postJson("/api/shop/reset-device", { code })'), "customer reset action missing");
+for (const [planCode, price] of Object.entries(expectedPrices)) {
+  assert(publicHtml.includes(`code: "${planCode}", price: ${price}`), `public plan missing: ${planCode}`);
+}
+assert(publicHtml.includes("https://discord.gg/zsky5XS7HU"), "Discord contact link missing");
 const tutorialVideoIds = ["PIKEcDoKbZY", "2tCCZyq2Znc", "A1NXQAv5N24", "lttfV0-onYw", "_TRvufTZv_I"];
 for (const videoId of tutorialVideoIds) {
   assert(publicHtml.includes(videoId), `tutorial video missing: ${videoId}`);
@@ -106,4 +162,6 @@ for (const [index, match] of scripts.entries()) {
 }
 
 assert(source.includes('keyTier === "promax" && !/^[0-9a-fA-F]{64}$/.test(contentKey)'), "ProMax content-key guard was lost");
-console.log("Backend restore tests passed: admin UI, SlipOK 3 accounts, device reset, prices, public UI, content-key guard");
+assert(source.includes('if (!lifetime && now > Number(row.expires_at))'), "Lifetime verification guard missing");
+assert(source.includes('lic_keys.duration_days = 0 OR lic_keys.expires_at IS NULL'), "Lifetime download access guard missing");
+console.log("Backend restore tests passed: admin UI, SlipOK 3 accounts, device reset, 10 plans, Lifetime, public UI, contact, content-key guard");

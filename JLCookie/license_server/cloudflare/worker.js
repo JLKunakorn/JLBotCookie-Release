@@ -145,9 +145,21 @@ function resolveDurationDays(body, fallbackDays = 7) {
       return Math.max(60, Math.min(365 * 86400, seconds)) / 86400;
     }
   }
-  const days = Number(body.duration_days || fallbackDays);
+  const rawDays = body.duration_days;
+  if (rawDays !== undefined && rawDays !== null && rawDays !== "" && Number(rawDays) === 0) {
+    return 0;
+  }
+  const days = Number(rawDays === undefined || rawDays === null || rawDays === "" ? fallbackDays : rawDays);
   if (!Number.isFinite(days)) return fallbackDays;
   return Math.max(1 / 1440, Math.min(365, days));
+}
+
+function isLifetimeDuration(days) {
+  return Number(days) === 0;
+}
+
+function expiresAtForDuration(now, days) {
+  return isLifetimeDuration(days) ? 0 : Math.floor(now + Number(days) * 86400);
 }
 
 async function signPayload(env, payload) {
@@ -364,18 +376,26 @@ async function verifyPassword(password, stored) {
 
 const SHOP_PLANS = {
   "1d": { code: "1d", label: "Premium 1 วัน", duration_days: 1, amount: 15, max_seats: 1, tier: "premium" },
+  "3d": { code: "3d", label: "Premium 3 วัน", duration_days: 3, amount: 35, max_seats: 1, tier: "premium" },
   "7d": { code: "7d", label: "Premium 7 วัน", duration_days: 7, amount: 70, max_seats: 1, tier: "premium" },
   "30d": { code: "30d", label: "Premium 30 วัน", duration_days: 30, amount: 250, max_seats: 1, tier: "premium" },
-  "1d_promax": { code: "1d_promax", label: "ProMax 1 วัน", duration_days: 1, amount: 49, max_seats: 1, tier: "promax" },
+  "lifetime": { code: "lifetime", label: "Premium Lifetime", duration_days: 0, amount: 599, max_seats: 1, tier: "premium" },
+  "1d_promax": { code: "1d_promax", label: "ProMax 1 วัน", duration_days: 1, amount: 59, max_seats: 1, tier: "promax" },
+  "3d_promax": { code: "3d_promax", label: "ProMax 3 วัน", duration_days: 3, amount: 149, max_seats: 1, tier: "promax" },
   "7d_promax": { code: "7d_promax", label: "ProMax 7 วัน", duration_days: 7, amount: 199, max_seats: 1, tier: "promax" },
-  "30d_promax": { code: "30d_promax", label: "ProMax 30 วัน", duration_days: 30, amount: 399, max_seats: 1, tier: "promax" },
+  "30d_promax": { code: "30d_promax", label: "ProMax 30 วัน", duration_days: 30, amount: 599, max_seats: 1, tier: "promax" },
+  "lifetime_promax": { code: "lifetime_promax", label: "ProMax Lifetime", duration_days: 0, amount: 999, max_seats: 1, tier: "promax" },
 };
 
 function resolveShopPlan(value) {
   const raw = cleanText(value, "7d").toLowerCase();
   if (SHOP_PLANS[raw]) return SHOP_PLANS[raw];
   const isPromax = raw.includes("promax");
+  if (raw.includes("lifetime") || raw.includes("ตลอดชีพ")) {
+    return isPromax ? SHOP_PLANS["lifetime_promax"] : SHOP_PLANS["lifetime"];
+  }
   if (raw.includes("30")) return isPromax ? SHOP_PLANS["30d_promax"] : SHOP_PLANS["30d"];
+  if (raw.includes("3")) return isPromax ? SHOP_PLANS["3d_promax"] : SHOP_PLANS["3d"];
   if (raw.includes("1")) return isPromax ? SHOP_PLANS["1d_promax"] : SHOP_PLANS["1d"];
   return isPromax ? SHOP_PLANS["7d_promax"] : SHOP_PLANS["7d"];
 }
@@ -515,7 +535,7 @@ async function markDelivered(env, code, orderId, customerRef, now) {
   }
   if (row.status !== "stock") return { ok: false, status: 409, msg: "คีย์นี้ไม่ได้อยู่ในสต็อก" };
 
-  const exp = Math.floor(now + Number(row.duration_days || 1) * 86400);
+  const exp = expiresAtForDuration(now, row.duration_days);
   await env.DB.prepare(
     `UPDATE lic_keys
      SET status = 'delivered', delivered_at = ?, expires_at = ?, order_id = ?, customer_ref = ?
@@ -579,8 +599,9 @@ async function verify(req, env) {
   if (!row) return deny("คีย์ไม่ถูกต้อง");
   if (row.revoked) return deny("คีย์ถูกระงับ");
 
+  const lifetime = isLifetimeDuration(row.duration_days);
   if (row.status === "active_on_first_use" && !row.expires_at) {
-    const activeExpiresAt = now + Number(row.duration_days || 7) * 86400;
+    const activeExpiresAt = expiresAtForDuration(now, row.duration_days);
     await env.DB.prepare(
       `UPDATE lic_keys
        SET status = 'delivered', expires_at = ?, delivered_at = ?
@@ -591,8 +612,8 @@ async function verify(req, env) {
     row.delivered_at = now;
   }
 
-  if (row.status !== "delivered" || !row.expires_at) return deny("คีย์นี้ยังไม่ได้ถูกส่งจากร้าน");
-  if (now > row.expires_at) return deny("คีย์หมดอายุ");
+  if (row.status !== "delivered" || (!lifetime && !row.expires_at)) return deny("คีย์นี้ยังไม่ได้ถูกส่งจากร้าน");
+  if (!lifetime && now > Number(row.expires_at)) return deny("คีย์หมดอายุ");
 
   const keyTier = resolveTier(row.tier || "premium");
   const releaseInfo = releaseDownloadInfo(env, keyTier);
@@ -727,7 +748,7 @@ async function extendKey(req, env) {
   if (![6, 24].includes(hours)) return json({ ok: false, msg: "ระยะเวลาไม่ถูกต้อง" }, 400);
   const seconds = hours * 3600;
   const result = await env.DB.prepare(
-    "UPDATE lic_keys SET expires_at = expires_at + ? WHERE code = ? AND expires_at IS NOT NULL"
+    "UPDATE lic_keys SET expires_at = expires_at + ? WHERE code = ? AND duration_days != 0 AND expires_at IS NOT NULL"
   ).bind(seconds, code).run();
   if (!result.meta || result.meta.changes === 0) {
     return json({ ok: false, msg: "คีย์นี้ยังไม่เปิดใช้งาน (ไม่มีวันหมดอายุให้ต่อ)" }, 400);
@@ -765,7 +786,7 @@ async function resetShopDevice(req, env) {
        )`,
   ).bind(code, user.id).first();
   if (!key) return json({ ok: false, msg: "ไม่พบคีย์นี้ในบัญชีของคุณ" }, 404);
-  if (Number(key.duration_days) !== 30) {
+  if (![0, 30].includes(Number(key.duration_days))) {
     return json({ ok: false, msg: "แพ็กเกจนี้ไม่รองรับการรีเซ็ตเครื่อง" }, 400);
   }
   if (Number(key.hwid_reset_count || 0) >= 2) {
@@ -788,7 +809,7 @@ async function resetShopDevice(req, env) {
            SELECT 1
            FROM lic_keys
            WHERE lic_keys.code = ?
-             AND lic_keys.duration_days = 30
+             AND lic_keys.duration_days IN (0, 30)
              AND COALESCE(lic_keys.hwid_reset_count, 0) < 2
              AND ${ownershipGuard}
          )`,
@@ -797,7 +818,7 @@ async function resetShopDevice(req, env) {
       `UPDATE lic_keys
        SET hwid_reset_count = COALESCE(hwid_reset_count, 0) + 1
        WHERE code = ?
-         AND duration_days = 30
+         AND duration_days IN (0, 30)
          AND COALESCE(hwid_reset_count, 0) < 2
          AND ${ownershipGuard}`,
     ).bind(code, user.id),
@@ -1063,7 +1084,7 @@ async function createOrder(req, env) {
     const deliverResult = await deliverStockKey(
       env,
       plan.code,
-      Number(plan.duration_days || 7),
+      Number(plan.duration_days),
       Number(plan.max_seats || 1),
       id,
       customerRef,
@@ -1392,7 +1413,7 @@ async function downloadInfo(req, env) {
      JOIN shop_users ON shop_users.id = shop_orders.user_id
      LEFT JOIN lic_keys ON lic_keys.code = shop_orders.key_code
      WHERE shop_orders.user_id = ? AND shop_orders.status = 'delivered'
-       AND (lic_keys.expires_at IS NULL OR lic_keys.expires_at > ?)
+       AND (lic_keys.duration_days = 0 OR lic_keys.expires_at IS NULL OR lic_keys.expires_at > ?)
      ORDER BY
        CASE WHEN lic_keys.tier = 'promax' OR shop_orders.plan LIKE '%promax%' THEN 0 ELSE 1 END,
        shop_orders.approved_at DESC
@@ -1473,7 +1494,7 @@ async function approveShopOrder(req, env) {
   const result = await deliverStockKey(
     env,
     order.plan,
-    Number(order.duration_days || 7),
+    Number(order.duration_days),
     Number(order.max_seats || 1),
     order.id,
     order.customer_ref || order.username,
@@ -1529,7 +1550,7 @@ async function generateFreeKey(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const body = await readJson(req);
   const tier = resolveTier(body.tier);
-  const durationDays = Number(body.duration_days || 7);
+  const durationDays = resolveDurationDays(body, 7);
   const plan = canonicalPlanCode(body.plan, tier, durationDays);
   const maxSeats = Number(body.max_seats || 1);
   const note = cleanText(body.note, "Free Key").slice(0, 300);
@@ -1556,7 +1577,7 @@ async function sendGift(req, env) {
   if (!user) return json({ ok: false, msg: "ไม่พบบัญชีลูกค้านี้" }, 400);
 
   const tier = resolveTier(body.tier);
-  const durationDays = Number(body.duration_days || 7);
+  const durationDays = resolveDurationDays(body, 7);
   const plan = canonicalPlanCode(body.plan, tier, durationDays);
   const note = cleanText(body.note, "Gift Key").slice(0, 300);
   const customerRef = cleanText(user.customer_ref || user.username, user.username);
@@ -1816,11 +1837,15 @@ function adminPage() {
             <label>แพ็ก</label>
             <select id="mintPlan">
               <option value="1d" data-tier="premium" data-days="1">Premium 1 วัน</option>
+              <option value="3d" data-tier="premium" data-days="3">Premium 3 วัน</option>
               <option value="7d" data-tier="premium" data-days="7">Premium 7 วัน</option>
               <option value="30d" data-tier="premium" data-days="30">Premium 30 วัน</option>
+              <option value="lifetime" data-tier="premium" data-days="0">Premium Lifetime</option>
               <option value="1d_promax" data-tier="promax" data-days="1">ProMax 1 วัน</option>
+              <option value="3d_promax" data-tier="promax" data-days="3">ProMax 3 วัน</option>
               <option value="7d_promax" data-tier="promax" data-days="7">ProMax 7 วัน</option>
               <option value="30d_promax" data-tier="promax" data-days="30">ProMax 30 วัน</option>
+              <option value="lifetime_promax" data-tier="promax" data-days="0">ProMax Lifetime</option>
             </select>
           </div>
           <div><label>จำนวนคีย์</label><input id="mintCount" type="number" min="1" max="200" value="10"></div>
@@ -1842,8 +1867,10 @@ function adminPage() {
             <label>ระยะเวลา</label>
             <select id="freePlan">
               <option value="1d">1 วัน</option>
+              <option value="3d">3 วัน</option>
               <option value="7d">7 วัน</option>
               <option value="30d">30 วัน</option>
+              <option value="lifetime">Lifetime</option>
             </select>
           </div>
           <div>
@@ -1873,11 +1900,15 @@ function adminPage() {
         <label>แพ็กของขวัญ</label>
         <select id="giftPlan">
           <option value="1d" data-tier="premium" data-days="1">Premium 1 วัน</option>
+          <option value="3d" data-tier="premium" data-days="3">Premium 3 วัน</option>
           <option value="7d" data-tier="premium" data-days="7">Premium 7 วัน</option>
           <option value="30d" data-tier="premium" data-days="30">Premium 30 วัน</option>
+          <option value="lifetime" data-tier="premium" data-days="0">Premium Lifetime</option>
           <option value="1d_promax" data-tier="promax" data-days="1">ProMax 1 วัน</option>
+          <option value="3d_promax" data-tier="promax" data-days="3">ProMax 3 วัน</option>
           <option value="7d_promax" data-tier="promax" data-days="7">ProMax 7 วัน</option>
           <option value="30d_promax" data-tier="promax" data-days="30">ProMax 30 วัน</option>
+          <option value="lifetime_promax" data-tier="promax" data-days="0">ProMax Lifetime</option>
         </select>
         <label>หมายเหตุ</label>
         <input id="giftNote" placeholder="เช่น ชดเชยปิดปรับปรุง / โปรโมชัน">
@@ -1981,6 +2012,7 @@ async function api(path, options) {
 
 function durationLabel(days) {
   const n = Number(days || 0);
+  if (n === 0) return "Lifetime";
   if (n > 0 && n < 1) return Math.round(n * 1440) + " นาที";
   if (Number.isInteger(n)) return n + " วัน";
   return Number(n.toFixed(3)) + " วัน";
@@ -2380,13 +2412,15 @@ $("freeBtn").onclick = async () => {
 
   const durationDaysMap = {
     "1d": 1,
+    "3d": 3,
     "7d": 7,
-    "30d": 30
+    "30d": 30,
+    "lifetime": 0
   };
 
   const body = {
     plan: plan,
-    duration_days: durationDaysMap[plan] || 7,
+    duration_days: Object.prototype.hasOwnProperty.call(durationDaysMap, plan) ? durationDaysMap[plan] : 7,
     max_seats: max_seats,
     note: note,
     tier: tier

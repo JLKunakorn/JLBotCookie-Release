@@ -34,7 +34,7 @@
         "@type": "AggregateOffer",
         "priceCurrency": "THB",
         "lowPrice": "15",
-        "highPrice": "250"
+        "highPrice": "999"
       }
     }
   </script>
@@ -564,7 +564,7 @@
     }
 
     .package-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       margin-bottom: 16px;
     }
 
@@ -1166,7 +1166,7 @@
             <div class="quick-card">
               <b>2</b>
               <strong>เลือกแพ็ก</strong>
-              <span>รายวัน รายสัปดาห์ หรือรายเดือน</span>
+              <span>เลือกได้ 1, 3, 7, 30 วัน หรือ Lifetime</span>
             </div>
             <div class="quick-card">
               <b>3</b>
@@ -1342,6 +1342,19 @@
               <button class="btn secondary" type="button" data-plan="1 วัน">เลือก 1 วัน</button>
             </article>
 
+            <article class="package" data-plan-card="3 วัน">
+              <span class="pill">ทดลองคุ้มกว่า</span>
+              <h3>3 วัน</h3>
+              <div class="price">35฿ <small>/ 3 วัน</small></div>
+              <ul>
+                <li>เริ่มนับเวลาหลังส่งคีย์</li>
+                <li>1 key ต่อ 1 เครื่อง</li>
+                <li>ดูคีย์ย้อนหลังได้ในบัญชี</li>
+              </ul>
+              <div class="stock-line" data-stock-line="3d">คีย์คงเหลือ <strong data-stock-count="3d">กำลังเช็ค</strong></div>
+              <button class="btn secondary" type="button" data-plan="3 วัน">เลือก 3 วัน</button>
+            </article>
+
             <article class="package selected" data-plan-card="7 วัน">
               <span class="pill amber">ยอดนิยม</span>
               <h3>รายสัปดาห์</h3>
@@ -1367,6 +1380,19 @@
               <div class="stock-line" data-stock-line="30d">คีย์คงเหลือ <strong data-stock-count="30d">กำลังเช็ค</strong></div>
               <button class="btn secondary" type="button" data-plan="30 วัน">เลือก 30 วัน</button>
             </article>
+
+            <article class="package" data-plan-card="Lifetime">
+              <span class="pill green">ซื้อครั้งเดียว</span>
+              <h3>Lifetime</h3>
+              <div class="price">599฿ <small>/ ไม่หมดอายุ</small></div>
+              <ul>
+                <li>ไม่มีวันหมดอายุ</li>
+                <li>1 key ต่อ 1 เครื่อง</li>
+                <li>ดูคีย์ย้อนหลังได้ในบัญชี</li>
+              </ul>
+              <div class="stock-line" data-stock-line="lifetime">คีย์คงเหลือ <strong data-stock-count="lifetime">กำลังเช็ค</strong></div>
+              <button class="btn secondary" type="button" data-plan="Lifetime">เลือก Lifetime</button>
+            </article>
           </div>
         </div>
 
@@ -1375,7 +1401,7 @@
             <article class="package" data-plan-card="1 วัน (ProMax)">
               <span class="pill">เริ่มต้น</span>
               <h3>รายวัน (ProMax)</h3>
-              <div class="price" style="color: var(--amber);">49฿ <small>/ 1 วัน</small></div>
+              <div class="price" style="color: var(--amber);">59฿ <small>/ 1 วัน</small></div>
               <ul>
                 <li>รวมทุกฟังก์ชันของรุ่น Premium</li>
                 <li>รีโรลไอดี (บัญชี Guest)</li>
@@ -1386,6 +1412,20 @@
               </ul>
               <div class="stock-line" data-stock-line="1d_promax">คีย์คงเหลือ <strong data-stock-count="1d_promax">กำลังเช็ค</strong></div>
               <button class="btn secondary" type="button" data-plan="1 วัน (ProMax)">เลือก 1 วัน (ProMax)</button>
+            </article>
+
+            <article class="package" data-plan-card="3 วัน (ProMax)">
+              <span class="pill">ทดลองคุ้มกว่า</span>
+              <h3>3 วัน (ProMax)</h3>
+              <div class="price" style="color: var(--amber);">149฿ <small>/ 3 วัน</small></div>
+              <ul>
+                <li>รวมทุกฟังก์ชันของรุ่น Premium</li>
+                <li>รีโรลไอดี (บัญชี Guest)</li>
+                <li>ปั๊มหัวใจเข้าลิงก์ / ปั๊มเพื่อน</li>
+                <li>รันหลายหน้าจอ (Multi-screen)</li>
+              </ul>
+              <div class="stock-line" data-stock-line="3d_promax">คีย์คงเหลือ <strong data-stock-count="3d_promax">กำลังเช็ค</strong></div>
+              <button class="btn secondary" type="button" data-plan="3 วัน (ProMax)">เลือก 3 วัน (ProMax)</button>
             </article>
 
             <article class="package selected" data-plan-card="7 วัน (ProMax)">
@@ -1407,7 +1447,7 @@
             <article class="package" data-plan-card="30 วัน (ProMax)">
               <span class="pill green">คุ้มสุด</span>
               <h3>รายเดือน (ProMax)</h3>
-              <div class="price" style="color: var(--amber);">399฿ <small>/ 30 วัน</small></div>
+              <div class="price" style="color: var(--amber);">599฿ <small>/ 30 วัน</small></div>
               <ul>
                 <li>รวมทุกฟังก์ชันของรุ่น Premium</li>
                 <li>รีโรลไอดี (บัญชี Guest)</li>
@@ -1418,6 +1458,20 @@
               </ul>
               <div class="stock-line" data-stock-line="30d_promax">คีย์คงเหลือ <strong data-stock-count="30d_promax">กำลังเช็ค</strong></div>
               <button class="btn secondary" type="button" data-plan="30 วัน (ProMax)">เลือก 30 วัน (ProMax)</button>
+            </article>
+
+            <article class="package" data-plan-card="Lifetime (ProMax)">
+              <span class="pill green">ซื้อครั้งเดียว</span>
+              <h3>Lifetime (ProMax)</h3>
+              <div class="price" style="color: var(--amber);">999฿ <small>/ ไม่หมดอายุ</small></div>
+              <ul>
+                <li>ไม่มีวันหมดอายุ</li>
+                <li>รวมทุกฟังก์ชันของรุ่น Premium</li>
+                <li>รีโรลไอดีและระบบ ProMax ทั้งหมด</li>
+                <li>รันหลายหน้าจอ (Multi-screen)</li>
+              </ul>
+              <div class="stock-line" data-stock-line="lifetime_promax">คีย์คงเหลือ <strong data-stock-count="lifetime_promax">กำลังเช็ค</strong></div>
+              <button class="btn secondary" type="button" data-plan="Lifetime (ProMax)">เลือก Lifetime (ProMax)</button>
             </article>
           </div>
         </div>
@@ -1685,6 +1739,17 @@
           </div>
         </div>
       </div>
+
+      <div class="card" style="max-width: 780px; margin: 12px auto 0;">
+        <a class="contact-item" href="https://discord.gg/zsky5XS7HU" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;">
+          <span class="contact-icon" aria-hidden="true">💬</span>
+          <span style="min-width:0; flex:1;">
+            <strong style="display:block; color:#c4b5fd;">Discord ร้าน BotCookieRUN</strong>
+            <span style="display:block; margin-top:4px; color:var(--soft);">ติดต่อสอบถาม รับประกาศอัปเดต และขอความช่วยเหลือผ่าน Discord</span>
+          </span>
+          <span class="pill">เข้าร่วม Discord</span>
+        </a>
+      </div>
     </section>
 
   </main>
@@ -1712,19 +1777,27 @@
     const seededActivity = [];
     const planData = {
       "1 วัน": { code: "1d", price: 15, duration: "24 ชั่วโมง", days: 1 },
+      "3 วัน": { code: "3d", price: 35, duration: "3 วัน", days: 3 },
       "7 วัน": { code: "7d", price: 70, duration: "7 วัน", days: 7 },
       "30 วัน": { code: "30d", price: 250, duration: "30 วัน", days: 30 },
-      "1 วัน (ProMax)": { code: "1d_promax", price: 49, duration: "24 ชั่วโมง", days: 1 },
+      "Lifetime": { code: "lifetime", price: 599, duration: "ไม่มีวันหมดอายุ", days: 0 },
+      "1 วัน (ProMax)": { code: "1d_promax", price: 59, duration: "24 ชั่วโมง", days: 1 },
+      "3 วัน (ProMax)": { code: "3d_promax", price: 149, duration: "3 วัน", days: 3 },
       "7 วัน (ProMax)": { code: "7d_promax", price: 199, duration: "7 วัน", days: 7 },
-      "30 วัน (ProMax)": { code: "30d_promax", price: 399, duration: "30 วัน", days: 30 }
+      "30 วัน (ProMax)": { code: "30d_promax", price: 599, duration: "30 วัน", days: 30 },
+      "Lifetime (ProMax)": { code: "lifetime_promax", price: 999, duration: "ไม่มีวันหมดอายุ", days: 0 }
     };
     const codeToPlanName = {
       "1d": "1 วัน",
+      "3d": "3 วัน",
       "7d": "7 วัน",
       "30d": "30 วัน",
+      "lifetime": "Lifetime",
       "1d_promax": "1 วัน (ProMax)",
+      "3d_promax": "3 วัน (ProMax)",
       "7d_promax": "7 วัน (ProMax)",
-      "30d_promax": "30 วัน (ProMax)"
+      "30d_promax": "30 วัน (ProMax)",
+      "lifetime_promax": "Lifetime (ProMax)"
     };
 
     const els = {
@@ -1878,12 +1951,18 @@
 
     function orderExpiresMs(order) {
       if (!order || order.status !== "delivered" || !order.approved_at) return 0;
-      return (Number(order.approved_at) + Number(order.duration_days || 0) * 86400) * 1000;
+      if (Number(order.key_duration_days ?? order.duration_days) === 0) return Number.POSITIVE_INFINITY;
+      return (Number(order.approved_at) + Number(order.duration_days) * 86400) * 1000;
     }
 
     function isOrderActive(order) {
       const expires = orderExpiresMs(order);
-      return expires > Date.now();
+      return expires === Number.POSITIVE_INFINITY || expires > Date.now();
+    }
+
+    function durationText(days) {
+      const value = Number(days);
+      return value === 0 ? "Lifetime" : `${value} วัน`;
     }
 
     function orderTierRank(order) {
@@ -2164,11 +2243,13 @@
       els.orderCount.textContent = `${orders.length} รายการ`;
       els.orderList.innerHTML = orders.length ? orders.map((order) => {
         const keyText = order.key_code ? order.key_code : "รอร้านตรวจสลิป";
-        const expiresText = order.status === "delivered" ? formatDate(orderExpiresMs(order) / 1000) : "เริ่มนับหลังร้านส่งคีย์";
         const keyDurationDays = Number(order.key_duration_days ?? order.duration_days);
+        const expiresText = order.status !== "delivered"
+          ? "เริ่มนับหลังร้านส่งคีย์"
+          : (keyDurationDays === 0 ? "ไม่มีวันหมดอายุ" : formatDate(orderExpiresMs(order) / 1000));
         const resetCount = Math.max(0, Number(order.hwid_reset_count || 0));
         const resetRemaining = Math.max(0, 2 - resetCount);
-        const resetButton = order.status === "delivered" && order.key_code && keyDurationDays === 30
+        const resetButton = order.status === "delivered" && order.key_code && [0, 30].includes(keyDurationDays)
           ? `<button class="btn secondary" type="button" data-reset-device="${esc(order.key_code)}" ${resetRemaining === 0 ? "disabled" : ""} style="min-height:34px; padding:0 10px; margin-top:10px; font-size:12px;">
                รีเซ็ตเครื่อง (เหลือ ${resetRemaining}/2 ครั้ง)
              </button>`
@@ -2189,12 +2270,13 @@
       const gifts = accountGifts.slice().sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
       els.giftCount.textContent = `${gifts.length} รายการ`;
       els.giftList.innerHTML = gifts.length ? gifts.map((gift) => {
+        const giftLifetime = Number(gift.duration_days) === 0;
         const expiresText = gift.revoked
           ? "ถูกระงับ"
-          : (gift.expires_at ? formatDate(gift.expires_at) : "เริ่มนับเมื่อเปิดใช้ในแอป");
+          : (giftLifetime ? "ไม่มีวันหมดอายุ" : (gift.expires_at ? formatDate(gift.expires_at) : "เริ่มนับเมื่อเปิดใช้ในแอป"));
         return `
           <div class="order-row">
-            <span>${esc(planLabelFromCode(gift.plan))} • ${esc(gift.duration_days)} วัน • ${esc(formatDate(gift.created_at))}</span>
+            <span>${esc(planLabelFromCode(gift.plan))} • ${esc(durationText(gift.duration_days))} • ${esc(formatDate(gift.created_at))}</span>
             <strong class="${gift.revoked ? "pill red" : "pill green"}">${gift.revoked ? "ระงับแล้ว" : "พร้อมใช้"}</strong>
             <span>คีย์ของขวัญ</span>
             <strong class="key-code">${esc(gift.code)}</strong>
@@ -2240,6 +2322,11 @@
 
     function startKeyCountdown(expiresAtTimestamp) {
       if (countdownInterval) clearInterval(countdownInterval);
+      if (expiresAtTimestamp === Number.POSITIVE_INFINITY) {
+        const countdownEl = document.getElementById("keyCountdown");
+        if (countdownEl) countdownEl.textContent = "Lifetime · ไม่มีวันหมดอายุ";
+        return;
+      }
       const updateTimer = () => {
         const diff = expiresAtTimestamp - Date.now();
         const countdownEl = document.getElementById("keyCountdown");
