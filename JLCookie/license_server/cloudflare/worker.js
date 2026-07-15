@@ -3,7 +3,7 @@ const encoder = new TextEncoder();
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,OPTIONS",
-  "access-control-allow-headers": "content-type,authorization,x-admin-token,x-session-token",
+  "access-control-allow-headers": "content-type,authorization,x-admin-token,x-session-token,x-discord-shop-token",
   "access-control-max-age": "86400",
 };
 
@@ -171,27 +171,91 @@ async function readJson(req) {
   }
 }
 
-async function checkSlipOK(env, { slipName, slipMime, slipB64, amount }) {
-  const branchId = cleanText(env.SLIPOK_BRANCH_ID).replace(/^#/, "");
-  const apiKey = cleanText(env.SLIPOK_API_KEY);
-  if (!branchId || !apiKey) return { enabled: false };
-  if (!slipB64) return { enabled: true, ok: false, status: 400, msg: "ไม่มีไฟล์สลิปสำหรับตรวจ SlipOK" };
+async function getConfig(env, key, fallback = "") {
+  try {
+    const row = await env.DB.prepare("SELECT value FROM app_config WHERE key = ?").bind(key).first();
+    return row && row.value != null ? String(row.value) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
 
+function slipOkCreds(env, account) {
+  if (String(account) === "3") {
+    return {
+      branchId: cleanText(env.SLIPOK_BRANCH_ID_3).replace(/^#/, ""),
+      apiKey: cleanText(env.SLIPOK_API_KEY_3),
+      label: "3",
+      displayName: "บช3 (Xiaomi)",
+    };
+  }
+  if (String(account) === "2") {
+    return {
+      branchId: cleanText(env.SLIPOK_BRANCH_ID_2).replace(/^#/, ""),
+      apiKey: cleanText(env.SLIPOK_API_KEY_2),
+      label: "2",
+      displayName: "บช2 (Fxng)",
+    };
+  }
+  return {
+    branchId: cleanText(env.SLIPOK_BRANCH_ID).replace(/^#/, ""),
+    apiKey: cleanText(env.SLIPOK_API_KEY),
+    label: "1",
+    displayName: "บช1 (JL)",
+  };
+}
+
+const SLIPOK_QUOTA_LIMIT = 100;
+const SLIPOK_QUOTA_RESERVE = 5;
+
+async function callSlipOKQuota(creds) {
+  try {
+    const res = await fetch(`https://api.slipok.com/api/line/apikey/${encodeURIComponent(creds.branchId)}/quota`, {
+      method: "GET",
+      headers: { "x-authorization": creds.apiKey },
+    });
+    const text = await res.text();
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = {};
+    }
+    const quotaData = data.data || {};
+    const remaining = Number(quotaData.quota);
+    const overQuota = Number(quotaData.overQuota || 0);
+    if (!res.ok || data.success === false || !Number.isFinite(remaining)) {
+      return {
+        ok: false,
+        status: res.ok ? 502 : res.status,
+        msg: String(data.message || quotaData.message || "SlipOK quota unavailable"),
+      };
+    }
+    return {
+      ok: true,
+      remaining: Math.max(0, remaining),
+      overQuota: Math.max(0, Number.isFinite(overQuota) ? overQuota : 0),
+    };
+  } catch (_) {
+    return { ok: false, status: 502, msg: "SlipOK quota unavailable" };
+  }
+}
+
+async function callSlipOK(creds, { slipName, slipMime, slipB64, amount }) {
   const form = new FormData();
   const blob = new Blob([b64ToBytes(slipB64)], { type: slipMime || "image/jpeg" });
   form.append("files", blob, slipName || "slip.jpg");
   form.append("log", "true");
   form.append("amount", String(amount));
 
-  let data = {};
-  let text = "";
   try {
-    const res = await fetch(`https://api.slipok.com/api/line/apikey/${encodeURIComponent(branchId)}`, {
+    const res = await fetch(`https://api.slipok.com/api/line/apikey/${encodeURIComponent(creds.branchId)}`, {
       method: "POST",
-      headers: { "x-authorization": apiKey },
+      headers: { "x-authorization": creds.apiKey },
       body: form,
     });
-    text = await res.text();
+    const text = await res.text();
+    let data = {};
     try {
       data = JSON.parse(text);
     } catch (_) {
@@ -199,25 +263,81 @@ async function checkSlipOK(env, { slipName, slipMime, slipB64, amount }) {
     }
     const slipData = data.data || {};
     const ok = res.ok && data.success !== false && slipData.success !== false && Boolean(slipData.transRef || slipData.amount);
+    const codeNum = Number(data.code);
+    const msgText = String(slipData.message || data.message || "");
+    const quotaExhausted = !ok && (codeNum === 1004 || /quota|โควต้า|โควตา|เกินจำนวน|เกินโควต้า|limit/i.test(msgText));
+    const accountUnavailable = !ok && [1001, 1002, 1003, 1004].includes(codeNum);
     if (!ok) {
       return {
-        enabled: true,
         ok: false,
         status: res.ok ? 400 : res.status,
-        msg: slipData.message || data.message || "SlipOK ตรวจสลิปไม่ผ่าน",
+        msg: msgText || "SlipOK ตรวจสลิปไม่ผ่าน",
+        quotaExhausted,
+        accountUnavailable,
+        account: creds.label,
       };
     }
     return {
-      enabled: true,
       ok: true,
-      msg: slipData.message || "SlipOK ตรวจสลิปผ่าน",
+      msg: msgText || "SlipOK ตรวจสลิปผ่าน",
       trans_ref: slipData.transRef || "",
       receiver: slipData.receiver?.displayName || slipData.receiver?.name || "",
       amount: slipData.amount,
+      account: creds.label,
     };
   } catch (_) {
-    return { enabled: true, ok: false, status: 502, msg: "ติดต่อ SlipOK ไม่สำเร็จ" };
+    return {
+      ok: false,
+      status: 502,
+      msg: "ติดต่อ SlipOK ไม่สำเร็จ",
+      quotaExhausted: false,
+      accountUnavailable: false,
+      account: creds.label,
+    };
   }
+}
+
+async function checkSlipOK(env, payload) {
+  const account = await getConfig(env, "slipok_account", "1");
+  const order = account === "3" ? [3] : account === "2" ? [2] : account === "auto" ? [1, 2, 3] : [1];
+  const configured = order.map((n) => slipOkCreds(env, n)).filter((creds) => creds.branchId && creds.apiKey);
+  if (!configured.length) return { enabled: false };
+  if (!payload.slipB64) return { enabled: true, ok: false, status: 400, msg: "ไม่มีไฟล์สลิปสำหรับตรวจ SlipOK" };
+
+  let last = null;
+  for (const creds of configured) {
+    const quota = await callSlipOKQuota(creds);
+    if (!quota.ok) {
+      last = {
+        enabled: true,
+        ok: false,
+        status: quota.status || 502,
+        msg: `${creds.displayName}: ${quota.msg}`,
+        account: creds.label,
+      };
+      if (account === "auto") continue;
+      break;
+    }
+    if (quota.remaining <= SLIPOK_QUOTA_RESERVE) {
+      last = {
+        enabled: true,
+        ok: false,
+        status: 429,
+        msg: `${creds.displayName} เหลือ ${quota.remaining}/${SLIPOK_QUOTA_LIMIT} จึงสำรองไว้ ${SLIPOK_QUOTA_RESERVE} ครั้ง`,
+        quotaExhausted: true,
+        accountUnavailable: true,
+        account: creds.label,
+      };
+      if (account === "auto") continue;
+      break;
+    }
+    const result = await callSlipOK(creds, payload);
+    result.enabled = true;
+    if (result.ok) return result;
+    last = result;
+    if (!(account === "auto" && (result.quotaExhausted || result.accountUnavailable))) break;
+  }
+  return last || { enabled: false };
 }
 
 async function sha256Hex(value) {
@@ -835,6 +955,242 @@ async function createOrder(req, env) {
      WHERE shop_orders.id = ?`,
   ).bind(id).first();
   return json({ ok: true, order: shopOrderReply(row) });
+}
+
+function isDiscordShop(req, env) {
+  const token = cleanText(req.headers.get("x-discord-shop-token"));
+  return Boolean(env.DISCORD_SHOP_TOKEN && token && token === env.DISCORD_SHOP_TOKEN);
+}
+
+function discordShopUnauthorized() {
+  return json({ ok: false, msg: "Discord Shop token invalid" }, 401);
+}
+
+function discordOrderId(value) {
+  const raw = cleanText(value).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 90);
+  return raw ? `DISCORD-${raw}` : "";
+}
+
+async function ensureDiscordShopUser(env, now) {
+  const tokenHash = await sha256Hex(env.DISCORD_SHOP_TOKEN || "");
+  const username = `dc_${tokenHash.slice(0, 24)}`;
+  let user = await env.DB.prepare(
+    "SELECT id, username, customer_ref FROM shop_users WHERE username = ?",
+  ).bind(username).first();
+  if (user) return user;
+
+  const passwordHash = await hashPassword(`discord-disabled-${randomHex(32)}`);
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO shop_users(username, password_hash, customer_ref, created_at) VALUES(?,?,?,?)",
+  ).bind(username, passwordHash, "Discord Shop Service", now).run();
+  user = await env.DB.prepare(
+    "SELECT id, username, customer_ref FROM shop_users WHERE username = ?",
+  ).bind(username).first();
+  if (!user) throw new Error("Discord Shop user unavailable");
+  return user;
+}
+
+async function discordShopPlans(req, env) {
+  if (!isDiscordShop(req, env)) return discordShopUnauthorized();
+  const rows = await env.DB.prepare(
+    `SELECT plan, tier, duration_days, max_seats, COUNT(*) AS count
+     FROM lic_keys
+     WHERE status = 'stock' AND revoked = 0
+     GROUP BY plan, tier, duration_days, max_seats`,
+  ).all();
+  const stockRows = rows.results || [];
+  const plans = Object.values(SHOP_PLANS).map((plan) => {
+    const stockCount = stockRows
+      .filter((row) =>
+        row.plan === plan.code &&
+        resolveTier(row.tier) === resolveTier(plan.tier) &&
+        Number(row.duration_days) === Number(plan.duration_days) &&
+        Number(row.max_seats || 1) === Number(plan.max_seats || 1)
+      )
+      .reduce((sum, row) => sum + Number(row.count || 0), 0);
+    return { ...plan, stock_count: stockCount };
+  });
+  return json({
+    ok: true,
+    plans,
+    payment: { qr_url: `${new URL(req.url).origin}/assets/payment_qr.jpg` },
+  });
+}
+
+async function discordOrderRow(env, id) {
+  return env.DB.prepare(
+    `SELECT shop_orders.*, shop_users.username
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     WHERE shop_orders.id = ?`,
+  ).bind(id).first();
+}
+
+async function discordKeyRow(env, code) {
+  if (!code) return null;
+  return env.DB.prepare(
+    `SELECT code, plan, tier, duration_days, expires_at, max_seats, revoked, status,
+            delivered_at, order_id, customer_ref
+     FROM lic_keys
+     WHERE code = ?`,
+  ).bind(code).first();
+}
+
+function discordDeliveredReply(env, order, key, reused = false) {
+  const tier = resolveTier(key?.tier || (String(order?.plan || "").includes("promax") ? "promax" : "premium"));
+  return {
+    ok: true,
+    reused,
+    order: order ? shopOrderReply(order) : {
+      id: key?.order_id || "",
+      plan: key?.plan || "",
+      plan_label: key?.plan || "",
+      duration_days: key?.duration_days,
+      status: "delivered",
+      key_code: key?.code || "",
+    },
+    key: keyReply(key),
+    release: { tier, ...releaseDownloadInfo(env, tier) },
+  };
+}
+
+async function createDiscordShopOrder(req, env) {
+  if (!isDiscordShop(req, env)) return discordShopUnauthorized();
+  const body = await readJson(req);
+  const planCode = cleanText(body.plan).toLowerCase();
+  const plan = SHOP_PLANS[planCode];
+  const id = discordOrderId(body.request_id);
+  const discordUserId = cleanText(body.discord_user_id);
+  const discordUsername = cleanText(body.discord_username).replace(/[\r\n\t]+/g, " ").slice(0, 80);
+  const guildId = cleanText(body.guild_id);
+  const slipName = cleanText(body.slip_name, "slip.jpg").slice(0, 160);
+  const slipMime = cleanText(body.slip_mime, "image/jpeg").toLowerCase().slice(0, 80);
+  const slipB64 = cleanText(body.slip_b64).replace(/\s+/g, "");
+  const now = Math.floor(Date.now() / 1000);
+
+  if (!plan) return json({ ok: false, msg: "แพ็กเกจไม่ถูกต้อง" }, 400);
+  if (!id) return json({ ok: false, msg: "request_id invalid" }, 400);
+  if (!/^\d{17,20}$/.test(discordUserId) || !/^\d{17,20}$/.test(guildId)) {
+    return json({ ok: false, msg: "Discord identity invalid" }, 400);
+  }
+  if (!/^image\/(?:jpeg|jpg|png|webp|jfif)$/i.test(slipMime)) {
+    return json({ ok: false, msg: "รองรับเฉพาะไฟล์รูป JPG, PNG หรือ WEBP" }, 400);
+  }
+  if (!slipB64 || !/^[A-Za-z0-9+/=]+$/.test(slipB64)) {
+    return json({ ok: false, msg: "ไฟล์สลิปไม่ถูกต้อง" }, 400);
+  }
+  if (slipB64.length > 8 * 1024 * 1024) {
+    return json({ ok: false, msg: "ไฟล์สลิปใหญ่เกิน 6 MB" }, 413);
+  }
+
+  const existingOrder = await discordOrderRow(env, id);
+  if (existingOrder) {
+    if (existingOrder.status === "delivered" && existingOrder.key_code) {
+      const existingKey = await discordKeyRow(env, existingOrder.key_code);
+      if (existingKey) return json(discordDeliveredReply(env, existingOrder, existingKey, true));
+    }
+    return json({ ok: false, msg: "คำสั่งซื้อนี้ถูกรับแล้ว", order: shopOrderReply(existingOrder) }, 409);
+  }
+
+  const deliveredBeforeOrder = await findDeliveredByOrder(env, id);
+  if (deliveredBeforeOrder) {
+    return json(discordDeliveredReply(env, null, deliveredBeforeOrder, true));
+  }
+
+  const stock = await env.DB.prepare(
+    `SELECT code FROM lic_keys
+     WHERE status = 'stock' AND revoked = 0 AND plan = ? AND tier = ?
+       AND duration_days = ? AND max_seats = ?
+     ORDER BY created_at ASC LIMIT 1`,
+  ).bind(plan.code, resolveTier(plan.tier), plan.duration_days, plan.max_seats).first();
+  if (!stock) return json({ ok: false, msg: "คีย์ในสต็อกแพ็กเกจนี้หมด" }, 409);
+
+  const slipCheck = await checkSlipOK(env, {
+    slipName,
+    slipMime,
+    slipB64,
+    amount: plan.amount,
+  });
+  if (!slipCheck.enabled) {
+    return json({ ok: false, msg: "SlipOK is not configured" }, 503);
+  }
+  if (!slipCheck.ok) {
+    return json({ ok: false, msg: "ตรวจสลิปไม่ผ่าน: " + slipCheck.msg }, slipCheck.status || 400);
+  }
+
+  const verifiedAmount = Number(slipCheck.amount);
+  if (!Number.isFinite(verifiedAmount) || Math.abs(verifiedAmount - Number(plan.amount)) > 0.001) {
+    return json({ ok: false, msg: `ยอดในสลิปไม่ตรงกับแพ็กเกจ (ต้องชำระ ${plan.amount} บาท)` }, 400);
+  }
+
+  const transRef = cleanText(slipCheck.trans_ref).trim().toUpperCase();
+  if (!transRef) return json({ ok: false, msg: "SlipOK response has no transRef" }, 502);
+  const claim = await env.DB.prepare(
+    "INSERT OR IGNORE INTO used_trans_refs(trans_ref, order_id, account, amount, used_at) VALUES(?,?,?,?,?)",
+  ).bind(transRef, id, slipCheck.account || "", slipCheck.amount ?? null, now).run();
+  if (!claim.meta || claim.meta.changes === 0) {
+    const used = await env.DB.prepare("SELECT order_id FROM used_trans_refs WHERE trans_ref = ?").bind(transRef).first();
+    if (!used || used.order_id !== id) {
+      return json({ ok: false, msg: "สลิปนี้ถูกใช้ไปแล้ว ไม่สามารถใช้ซ้ำได้" }, 409);
+    }
+  }
+
+  const customerRef = `Discord ${discordUsername || discordUserId} (${discordUserId})`.slice(0, 160);
+  const user = await ensureDiscordShopUser(env, now);
+  const deliverResult = await deliverStockKey(
+    env,
+    plan.code,
+    plan.duration_days,
+    plan.max_seats,
+    id,
+    customerRef,
+    now,
+    plan.tier,
+  );
+  const delivered = Boolean(deliverResult.ok);
+  const keyCode = delivered ? deliverResult.row.code : null;
+  const status = delivered ? "delivered" : "payment_verified";
+  const approvedAt = delivered ? now : null;
+  const adminNote = delivered
+    ? `Discord Auto-Approved by SlipOK: ${slipCheck.msg} / account ${slipCheck.account || "?"}${transRef ? " / transRef " + transRef : ""}`
+    : `Discord SlipOK OK but Stock Empty: ${slipCheck.msg}${transRef ? " / transRef " + transRef : ""}`;
+
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO shop_orders(
+       id, user_id, plan, plan_label, duration_days, amount, max_seats, status,
+       customer_ref, slip_name, slip_mime, slip_b64, slip_uploaded_at,
+       key_code, created_at, approved_at, rejected_at, admin_note
+     ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+  ).bind(
+    id,
+    user.id,
+    plan.code,
+    plan.label,
+    plan.duration_days,
+    plan.amount,
+    plan.max_seats,
+    status,
+    customerRef,
+    slipName,
+    slipMime,
+    slipB64,
+    now,
+    keyCode,
+    now,
+    approvedAt,
+    adminNote,
+  ).run();
+
+  const order = await discordOrderRow(env, id);
+  if (!delivered) {
+    return json({
+      ok: false,
+      payment_verified: true,
+      order: shopOrderReply(order),
+      msg: "ชำระเงินผ่านแล้ว แต่สต็อกเพิ่งหมด ระบบบันทึกออเดอร์ให้ผู้ดูแลแล้ว",
+    }, 409);
+  }
+  return json(discordDeliveredReply(env, order, deliverResult.row, deliverResult.reused));
 }
 
 async function myOrders(req, env) {
@@ -1899,6 +2255,8 @@ export default {
       return json({ ok: false, msg: "ไม่พบเส้นทางนี้" }, 404);
     }
     if (req.method === "POST" && url.pathname === "/api/verify") return verify(req, env);
+    if (req.method === "GET" && url.pathname === "/api/discord-shop/plans") return discordShopPlans(req, env);
+    if (req.method === "POST" && url.pathname === "/api/discord-shop/orders") return createDiscordShopOrder(req, env);
     if (req.method === "GET" && url.pathname === "/api/shop/plans") return shopPlans(env);
     if (req.method === "GET" && url.pathname === "/api/shop/activity") return shopActivity(env);
     if (req.method === "POST" && url.pathname === "/api/auth/register") return registerUser(req, env);
