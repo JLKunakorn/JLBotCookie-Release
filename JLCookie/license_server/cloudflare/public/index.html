@@ -2134,6 +2134,14 @@
       els.orderList.innerHTML = orders.length ? orders.map((order) => {
         const keyText = order.key_code ? order.key_code : "รอร้านตรวจสลิป";
         const expiresText = order.status === "delivered" ? formatDate(orderExpiresMs(order) / 1000) : "เริ่มนับหลังร้านส่งคีย์";
+        const keyDurationDays = Number(order.key_duration_days ?? order.duration_days);
+        const resetCount = Math.max(0, Number(order.hwid_reset_count || 0));
+        const resetRemaining = Math.max(0, 2 - resetCount);
+        const resetButton = order.status === "delivered" && order.key_code && keyDurationDays === 30
+          ? `<button class="btn secondary" type="button" data-reset-device="${esc(order.key_code)}" ${resetRemaining === 0 ? "disabled" : ""} style="min-height:34px; padding:0 10px; margin-top:10px; font-size:12px;">
+               รีเซ็ตเครื่อง (เหลือ ${resetRemaining}/2 ครั้ง)
+             </button>`
+          : "";
         return `
           <div class="order-row">
             <span>${esc(order.id)} • ${esc(order.plan_label || planLabelFromCode(order.plan))} • ${esc(order.amount)}฿</span>
@@ -2142,6 +2150,7 @@
             <strong class="key-code">${esc(keyText)}</strong>
             <span>เวลาจะเริ่มนับถอยหลังเมื่อร้านอนุมัติส่งคีย์แล้ว</span>
             <strong>หมดอายุ: ${esc(expiresText)}</strong>
+            ${resetButton}
           </div>
         `;
       }).join("") : `<div class="empty-state">ยังไม่มีรายการซื้อ กดซื้อคีย์เพื่อเริ่มใช้งาน</div>`;
@@ -2507,6 +2516,28 @@
       renderAuthState();
       renderAccount();
       showView("home");
+    });
+
+    els.orderList.addEventListener("click", async (event) => {
+      const button = event.target instanceof Element ? event.target.closest("[data-reset-device]") : null;
+      if (!button || button.disabled) return;
+
+      const code = button.dataset.resetDevice || "";
+      if (!code || !window.confirm(`ต้องการรีเซ็ตเครื่องที่ผูกกับคีย์ ${code} ใช่ไหม?`)) return;
+
+      const previousText = button.textContent;
+      button.disabled = true;
+      button.textContent = "กำลังรีเซ็ต...";
+      try {
+        const data = await postJson("/api/shop/reset-device", { code });
+        await refreshOrders();
+        renderAccount();
+        window.alert(data.msg || "รีเซ็ตเครื่องแล้ว");
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = previousText;
+        window.alert(error.message);
+      }
     });
 
     document.getElementById("orderForm").addEventListener("submit", async (event) => {

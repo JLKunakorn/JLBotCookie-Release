@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS lic_keys (
   code TEXT PRIMARY KEY,
   plan TEXT NOT NULL,
+  tier TEXT NOT NULL DEFAULT 'premium',
   duration_days INTEGER NOT NULL,
   expires_at INTEGER,
   max_seats INTEGER NOT NULL DEFAULT 1,
@@ -10,7 +11,8 @@ CREATE TABLE IF NOT EXISTS lic_keys (
   order_id TEXT,
   customer_ref TEXT,
   created_at INTEGER NOT NULL,
-  note TEXT
+  note TEXT,
+  hwid_reset_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS lic_seats (
@@ -73,3 +75,33 @@ CREATE INDEX IF NOT EXISTS idx_shop_sessions_exp ON shop_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_shop_orders_user ON shop_orders(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_shop_orders_status ON shop_orders(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_shop_orders_key ON shop_orders(key_code);
+
+CREATE TABLE IF NOT EXISTS shop_gifts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  code TEXT NOT NULL,
+  tier TEXT NOT NULL,
+  plan TEXT NOT NULL,
+  duration_days INTEGER NOT NULL,
+  note TEXT,
+  created_at INTEGER NOT NULL,
+  claimed_at INTEGER,
+  FOREIGN KEY (user_id) REFERENCES shop_users(id),
+  FOREIGN KEY (code) REFERENCES lic_keys(code)
+);
+
+CREATE TABLE IF NOT EXISTS app_config (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS used_trans_refs (
+  trans_ref TEXT PRIMARY KEY,
+  order_id TEXT,
+  account TEXT,
+  amount REAL,
+  used_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_shop_gifts_user ON shop_gifts(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_used_trans_refs_order ON used_trans_refs(order_id);

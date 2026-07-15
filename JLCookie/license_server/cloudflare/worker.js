@@ -478,6 +478,8 @@ function shopOrderReply(row, includeSlip = false) {
     slip_mime: row.slip_mime,
     has_slip: Boolean(row.slip_b64),
     key_code: row.key_code,
+    key_duration_days: row.key_duration_days,
+    hwid_reset_count: Number(row.hwid_reset_count || 0),
     created_at: row.created_at,
     approved_at: row.approved_at,
     rejected_at: row.rejected_at,
@@ -742,6 +744,139 @@ async function resetSeats(req, env) {
   return json({ ok: true, code });
 }
 
+async function resetShopDevice(req, env) {
+  const user = await requireUser(req, env);
+  if (!user) return authRequired();
+  const body = await readJson(req);
+  const code = cleanCode(body.code || body.key);
+  if (!code) return json({ ok: false, msg: "กรุณาใส่คีย์" }, 400);
+
+  const key = await env.DB.prepare(
+    `SELECT lic_keys.code, lic_keys.duration_days,
+            COALESCE(lic_keys.hwid_reset_count, 0) AS hwid_reset_count
+     FROM lic_keys
+     WHERE lic_keys.code = ?
+       AND EXISTS (
+         SELECT 1
+         FROM shop_orders
+         WHERE shop_orders.key_code = lic_keys.code
+           AND shop_orders.user_id = ?
+           AND shop_orders.status = 'delivered'
+       )`,
+  ).bind(code, user.id).first();
+  if (!key) return json({ ok: false, msg: "ไม่พบคีย์นี้ในบัญชีของคุณ" }, 404);
+  if (Number(key.duration_days) !== 30) {
+    return json({ ok: false, msg: "แพ็กเกจนี้ไม่รองรับการรีเซ็ตเครื่อง" }, 400);
+  }
+  if (Number(key.hwid_reset_count || 0) >= 2) {
+    return json({ ok: false, msg: "ใช้สิทธิ์รีเซ็ตเครื่องครบแล้ว" }, 409);
+  }
+
+  const ownershipGuard = `
+    EXISTS (
+      SELECT 1
+      FROM shop_orders
+      WHERE shop_orders.key_code = lic_keys.code
+        AND shop_orders.user_id = ?
+        AND shop_orders.status = 'delivered'
+    )`;
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `DELETE FROM lic_seats
+       WHERE code = ?
+         AND EXISTS (
+           SELECT 1
+           FROM lic_keys
+           WHERE lic_keys.code = ?
+             AND lic_keys.duration_days = 30
+             AND COALESCE(lic_keys.hwid_reset_count, 0) < 2
+             AND ${ownershipGuard}
+         )`,
+    ).bind(code, code, user.id),
+    env.DB.prepare(
+      `UPDATE lic_keys
+       SET hwid_reset_count = COALESCE(hwid_reset_count, 0) + 1
+       WHERE code = ?
+         AND duration_days = 30
+         AND COALESCE(hwid_reset_count, 0) < 2
+         AND ${ownershipGuard}`,
+    ).bind(code, user.id),
+  ]);
+  const updateResult = results[1];
+  if (!updateResult?.meta || Number(updateResult.meta.changes || 0) !== 1) {
+    return json({ ok: false, msg: "ใช้สิทธิ์รีเซ็ตเครื่องครบแล้ว" }, 409);
+  }
+
+  const updatedKey = await env.DB.prepare(
+    "SELECT COALESCE(hwid_reset_count, 0) AS hwid_reset_count FROM lic_keys WHERE code = ?",
+  ).bind(code).first();
+  const resetCount = Math.min(2, Number(updatedKey?.hwid_reset_count || 0));
+  const remaining = Math.max(0, 2 - resetCount);
+  return json({
+    ok: true,
+    code,
+    hwid_reset_count: resetCount,
+    remaining,
+    msg: `รีเซ็ตเครื่องแล้ว ใช้ได้อีก ${remaining} ครั้ง`,
+  });
+}
+
+async function getSlipokAccount(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const account = await getConfig(env, "slipok_account", "1");
+  const accounts = await Promise.all([1, 2, 3].map(async (number) => {
+    const creds = slipOkCreds(env, number);
+    if (!creds.branchId || !creds.apiKey) {
+      return {
+        number: String(number),
+        name: creds.displayName,
+        configured: false,
+        limit: SLIPOK_QUOTA_LIMIT,
+        reserve: SLIPOK_QUOTA_RESERVE,
+      };
+    }
+    const quota = await callSlipOKQuota(creds);
+    if (!quota.ok) {
+      return {
+        number: String(number),
+        name: creds.displayName,
+        configured: true,
+        ok: false,
+        error: quota.msg,
+        limit: SLIPOK_QUOTA_LIMIT,
+        reserve: SLIPOK_QUOTA_RESERVE,
+      };
+    }
+    const used = Math.max(0, SLIPOK_QUOTA_LIMIT - quota.remaining + quota.overQuota);
+    return {
+      number: String(number),
+      name: creds.displayName,
+      configured: true,
+      ok: true,
+      used,
+      remaining: quota.remaining,
+      overQuota: quota.overQuota,
+      limit: SLIPOK_QUOTA_LIMIT,
+      reserve: SLIPOK_QUOTA_RESERVE,
+      available: quota.remaining > SLIPOK_QUOTA_RESERVE,
+    };
+  }));
+  return json({ ok: true, account, accounts, reserve: SLIPOK_QUOTA_RESERVE });
+}
+
+async function setSlipokAccount(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const body = await readJson(req);
+  const account = cleanText(body.account);
+  if (!["1", "2", "3", "auto"].includes(account)) {
+    return json({ ok: false, msg: "บัญชี SlipOK ไม่ถูกต้อง" }, 400);
+  }
+  await env.DB.prepare(
+    "INSERT INTO app_config(key, value) VALUES('slipok_account', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).bind(account).run();
+  return json({ ok: true, account });
+}
+
 async function stock(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const rows = await env.DB.prepare(
@@ -895,8 +1030,32 @@ async function createOrder(req, env) {
   let keyCode = null;
   let approvedAt = null;
   let adminNote = null;
+  let canAutoDeliver = slipCheck.enabled;
 
   if (slipCheck.enabled) {
+    const transRef = cleanText(slipCheck.trans_ref).trim().toUpperCase();
+    if (transRef) {
+      try {
+        const claim = await env.DB.prepare(
+          "INSERT OR IGNORE INTO used_trans_refs(trans_ref, order_id, account, amount, used_at) VALUES(?,?,?,?,?)",
+        ).bind(transRef, id, slipCheck.account || "", slipCheck.amount ?? null, now).run();
+        if (!claim.meta || claim.meta.changes === 0) {
+          return json({ ok: false, msg: "สลิปนี้ถูกใช้ไปแล้ว ไม่สามารถใช้ซ้ำได้" }, 409);
+        }
+      } catch (_) {
+        canAutoDeliver = false;
+      }
+    } else {
+      canAutoDeliver = false;
+    }
+  }
+
+  if (slipCheck.enabled && !canAutoDeliver) {
+    status = "payment_verified";
+    adminNote = `SlipOK ผ่านแต่ตรวจสลิปซ้ำไม่ได้ (ไม่มี transRef/DB) -> ตรวจด้วยมือ: ${slipCheck.msg}`;
+  }
+
+  if (canAutoDeliver) {
     status = "payment_verified";
     adminNote = `SlipOK: ${slipCheck.msg}${slipCheck.trans_ref ? " / transRef " + slipCheck.trans_ref : ""}`;
 
@@ -1197,9 +1356,12 @@ async function myOrders(req, env) {
   const user = await requireUser(req, env);
   if (!user) return authRequired();
   const rows = await env.DB.prepare(
-    `SELECT shop_orders.*, shop_users.username
+    `SELECT shop_orders.*, shop_users.username,
+            lic_keys.duration_days AS key_duration_days,
+            COALESCE(lic_keys.hwid_reset_count, 0) AS hwid_reset_count
      FROM shop_orders
      JOIN shop_users ON shop_users.id = shop_orders.user_id
+     LEFT JOIN lic_keys ON lic_keys.code = shop_orders.key_code
      WHERE shop_orders.user_id = ?
      ORDER BY shop_orders.created_at DESC
      LIMIT 100`,
@@ -1633,10 +1795,11 @@ function adminPage() {
       <section class="card span12">
         <h2>ออเดอร์ลูกค้า</h2>
         <div class="tableMeta">
-          <span id="orderCountText">ยังไม่มีข้อมูล</span>
+          <strong id="orderCountText">ยังไม่มีข้อมูล</strong>
+          <button class="mini secondary" id="toggleOrdersBtn" type="button" aria-expanded="false" aria-controls="ordersPanel">แสดง</button>
           <span>ลูกค้าอัปสลิป → ผู้ดูแลอนุมัติ → ระบบส่งคีย์จากสต็อกให้อัตโนมัติ</span>
         </div>
-        <div style="overflow:auto">
+        <div id="ordersPanel" style="overflow:auto; display:none">
           <table>
             <thead>
               <tr><th>ออเดอร์</th><th>สถานะ</th><th>แพ็ก/ยอด</th><th>ลูกค้า</th><th>วันที่</th><th>คีย์</th><th>จัดการ</th></tr>
@@ -1725,6 +1888,27 @@ function adminPage() {
       </section>
 
       <section class="card span12">
+        <h2>บัญชี SlipOK (ตรวจสลิป)</h2>
+        <div class="toolbar">
+          <div>
+            <label>บัญชีที่ใช้ตรวจสลิป</label>
+            <select id="slipokAccount">
+              <option value="1">บช1 (JL)</option>
+              <option value="2">บช2 (Fxng)</option>
+              <option value="3">บช3 (Xiaomi)</option>
+              <option value="auto">อัตโนมัติ (JL → Fxng → Xiaomi, สลับเมื่อเหลือ 5)</option>
+            </select>
+          </div>
+          <div class="buttons">
+            <button class="secondary" id="slipokRefreshBtn">รีเฟรชโควตา</button>
+            <button class="secondary" id="slipokSaveBtn">บันทึกบัญชี</button>
+          </div>
+        </div>
+        <div id="slipokStatus" style="font-size:12px; margin-top:6px; font-family:monospace;"></div>
+        <div id="slipokQuotaStatus" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-top:10px;"></div>
+      </section>
+
+      <section class="card span12">
         <h2>ค้นหาและจัดการคีย์</h2>
         <div class="toolbar">
           <div>
@@ -1772,6 +1956,7 @@ let adminToken = sessionStorage.getItem("jl_admin_token") || "";
 let allKeys = [];
 let allStock = [];
 let allOrders = [];
+let ordersVisible = false;
 $("adminToken").value = adminToken;
 
 function setStatus(text, ok) {
@@ -2014,6 +2199,10 @@ function orderPlanBlock(row) {
 
 function renderOrders() {
   $("orderCountText").textContent = "ออเดอร์ล่าสุด " + allOrders.length + " รายการ";
+  if (!ordersVisible) {
+    $("ordersBody").innerHTML = "";
+    return;
+  }
   if (!allOrders.length) {
     $("ordersBody").innerHTML = '<tr><td class="emptyRow" colspan="7">ยังไม่มีออเดอร์จากลูกค้า</td></tr>';
     return;
@@ -2040,6 +2229,16 @@ function renderOrders() {
     '</tr>';
   }).join("");
 }
+
+function setOrdersVisible(visible) {
+  ordersVisible = Boolean(visible);
+  $("ordersPanel").style.display = ordersVisible ? "block" : "none";
+  $("toggleOrdersBtn").textContent = ordersVisible ? "ซ่อน" : "แสดง";
+  $("toggleOrdersBtn").setAttribute("aria-expanded", ordersVisible ? "true" : "false");
+  renderOrders();
+}
+
+$("toggleOrdersBtn").onclick = () => setOrdersVisible(!ordersVisible);
 
 async function openOrderSlip(orderIdValue) {
   const data = await api("/api/admin/shop-order-slip?order_id=" + encodeURIComponent(orderIdValue));
@@ -2233,7 +2432,68 @@ $("giftBtn").onclick = async () => {
   setStatus("ส่งของขวัญให้ " + data.username + " แล้ว: " + data.code + (copied ? " (คัดลอกลงคลิปบอร์ดแล้ว)" : ""), true);
 };
 
-if (adminToken) refresh().catch((e) => setStatus(e.message, false));
+function slipokAccountLabel(account) {
+  if (account === "1") return "บช1 (JL)";
+  if (account === "2") return "บช2 (Fxng)";
+  if (account === "3") return "บช3 (Xiaomi)";
+  return "อัตโนมัติ (JL → Fxng → Xiaomi)";
+}
+
+function renderSlipokQuotas(accounts) {
+  const root = $("slipokQuotaStatus");
+  root.textContent = "";
+  for (const item of accounts || []) {
+    const card = document.createElement("div");
+    card.style.cssText = "border:1px solid var(--line);border-radius:10px;padding:10px;background:rgba(255,255,255,.025);font-family:monospace;font-size:12px;";
+    const title = document.createElement("div");
+    title.style.cssText = "font-weight:700;margin-bottom:5px;color:var(--gold);";
+    title.textContent = item.name;
+    const value = document.createElement("div");
+    if (!item.configured) {
+      value.textContent = "ยังไม่ได้ตั้งค่า API";
+    } else if (!item.ok) {
+      value.textContent = "อ่านโควตาไม่สำเร็จ";
+      value.style.color = "#ff8a8a";
+    } else {
+      value.textContent = item.used + "/" + item.limit + " (เหลือ " + item.remaining + ")" + (item.available ? "" : " • หยุดใช้");
+      value.style.color = item.available ? "#7ee787" : "#ff8a8a";
+    }
+    card.appendChild(title);
+    card.appendChild(value);
+    root.appendChild(card);
+  }
+}
+
+async function loadSlipokAccount() {
+  try {
+    const data = await api("/api/admin/slipok-account");
+    if (data && data.account) {
+      $("slipokAccount").value = data.account;
+      const label = slipokAccountLabel(data.account);
+      $("slipokStatus").textContent = "กำลังใช้: " + label;
+      renderSlipokQuotas(data.accounts);
+    }
+  } catch (_) {
+    // สถานะ API หลักจะแสดงข้อผิดพลาดให้ผู้ดูแลอยู่แล้ว
+  }
+}
+
+$("slipokRefreshBtn").onclick = () => loadSlipokAccount();
+
+$("slipokSaveBtn").onclick = async () => {
+  const account = $("slipokAccount").value;
+  const data = await postJson("/api/admin/slipok-account", { account }).catch((e) => ({ error: e.message }));
+  if (data.error) return setStatus(data.error, false);
+  const label = slipokAccountLabel(account);
+  $("slipokStatus").textContent = "กำลังใช้: " + label;
+  setStatus("เปลี่ยนบัญชี SlipOK แล้ว: " + label, true);
+  loadSlipokAccount();
+};
+
+if (adminToken) {
+  refresh().catch((e) => setStatus(e.message, false));
+  loadSlipokAccount();
+}
 </script>
 </body>
 </html>`);
@@ -2262,6 +2522,7 @@ export default {
     if (req.method === "POST" && url.pathname === "/api/auth/register") return registerUser(req, env);
     if (req.method === "POST" && url.pathname === "/api/auth/login") return loginUser(req, env);
     if (req.method === "GET" && url.pathname === "/api/me") return me(req, env);
+    if (req.method === "POST" && url.pathname === "/api/shop/reset-device") return resetShopDevice(req, env);
     if (req.method === "GET" && url.pathname === "/api/download-info") return downloadInfo(req, env);
     if (req.method === "POST" && url.pathname === "/api/orders") return createOrder(req, env);
     if (req.method === "GET" && url.pathname === "/api/orders") return myOrders(req, env);
@@ -2276,6 +2537,8 @@ export default {
     if (req.method === "POST" && url.pathname === "/api/admin/reset-seats") return resetSeats(req, env);
     if (req.method === "GET" && url.pathname === "/api/admin/stock") return stock(req, env);
     if (req.method === "GET" && url.pathname === "/api/admin/keys") return listKeys(req, env);
+    if (req.method === "GET" && url.pathname === "/api/admin/slipok-account") return getSlipokAccount(req, env);
+    if (req.method === "POST" && url.pathname === "/api/admin/slipok-account") return setSlipokAccount(req, env);
     if (req.method === "GET" && url.pathname === "/api/admin/shop-orders") return listShopOrders(req, env);
     if (req.method === "GET" && url.pathname === "/api/admin/shop-order-slip") return shopOrderSlip(req, env, url);
     if (req.method === "POST" && url.pathname === "/api/admin/shop-orders/approve") return approveShopOrder(req, env);
