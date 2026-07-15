@@ -94,6 +94,11 @@ for (const plan of plans.plans) {
 const publicHtml = await fs.readFile(new URL("./public/index.html", import.meta.url), "utf8");
 assert(publicHtml.includes('data-reset-device="${esc(order.key_code)}"'), "customer reset button missing");
 assert(publicHtml.includes('postJson("/api/shop/reset-device", { code })'), "customer reset action missing");
+const tutorialVideoIds = ["PIKEcDoKbZY", "2tCCZyq2Znc", "A1NXQAv5N24", "lttfV0-onYw", "_TRvufTZv_I"];
+for (const videoId of tutorialVideoIds) {
+  assert(publicHtml.includes(videoId), `tutorial video missing: ${videoId}`);
+}
+assert((publicHtml.match(/class="video-thumb"/g) || []).length >= tutorialVideoIds.length, "tutorial thumbnails missing");
 const scripts = [...publicHtml.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
 for (const [index, match] of scripts.entries()) {
   if (/type=["']application\/ld\+json["']/i.test(match[0])) continue;

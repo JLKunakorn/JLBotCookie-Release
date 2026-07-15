@@ -205,6 +205,12 @@
 
     .btn:hover { transform: translateY(-1px); }
 
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
     .btn.secondary {
       color: var(--soft);
       background: rgba(15, 23, 42, 0.82);
@@ -814,6 +820,14 @@
     button.video-mockup {
       color: inherit;
       padding: 0;
+    }
+    .video-thumb {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
     }
     .video-mockup:hover .play-btn {
       transform: scale(1.1);
@@ -1582,12 +1596,29 @@
               </div>
             </div>
             <button type="button" class="video-mockup" data-video-url="https://youtu.be/PIKEcDoKbZY" data-video-title="ขั้นตอนการใช้งาน JL Bot Cookie" aria-label="วิดีโอสอนใช้งาน JL Bot Cookie">
+              <img class="video-thumb" src="https://img.youtube.com/vi/PIKEcDoKbZY/hqdefault.jpg" alt="">
               <div class="play-btn"></div>
               <div class="video-title-overlay">ขั้นตอนการใช้งาน JL Bot Cookie</div>
             </button>
             <button type="button" class="video-mockup" data-video-url="https://youtu.be/2tCCZyq2Znc?si=qi-z-3E8nrEk2n2H" data-video-title="ตัวอย่างการทำงาน ระบบรีโรลไอดี (JL Bot Promax)" aria-label="วิดีโอสาธิตการรีโรลไอดี JL Bot Promax" style="margin-top: 12px;">
+              <img class="video-thumb" src="https://img.youtube.com/vi/2tCCZyq2Znc/hqdefault.jpg" alt="">
               <div class="play-btn" style="border-color: transparent transparent transparent var(--amber);"></div>
               <div class="video-title-overlay">วิดีโอระบบรีโรลไอดี (JL Bot Promax)</div>
+            </button>
+            <button type="button" class="video-mockup" data-video-url="https://youtu.be/A1NXQAv5N24?si=zSw6zCcHyivbXyYq" data-video-title="สอนตั้งค่ามาโครในโปรแกรม JLBOT ไม่ติดแคปชั่นแบน" aria-label="วิดีโอสอนตั้งค่ามาโคร" style="margin-top: 12px;">
+              <img class="video-thumb" src="https://img.youtube.com/vi/A1NXQAv5N24/hqdefault.jpg" alt="">
+              <div class="play-btn"></div>
+              <div class="video-title-overlay">สอนตั้งค่ามาโครในโปรแกรม JLBOT ไม่ติดแคปชั่นแบน</div>
+            </button>
+            <button type="button" class="video-mockup" data-video-url="https://youtu.be/lttfV0-onYw?si=RxC8WLqmCkJr2AN7" data-video-title="วิธีการปั้มหัวใจเล่นไม่จำกัด" aria-label="วิดีโอวิธีปั้มหัวใจ" style="margin-top: 12px;">
+              <img class="video-thumb" src="https://img.youtube.com/vi/lttfV0-onYw/hqdefault.jpg" alt="">
+              <div class="play-btn" style="border-color: transparent transparent transparent var(--amber);"></div>
+              <div class="video-title-overlay">วิธีการปั้มหัวใจเล่นไม่จำกัด</div>
+            </button>
+            <button type="button" class="video-mockup" data-video-url="https://youtu.be/_TRvufTZv_I?si=rp-Wfd7jHyWQBfKJ" data-video-title="สอนใช้โปรแกรม Auto รีโรลไอดี ทำขายได้ ไม่โดนแบน" aria-label="วิดีโอสอนใช้ Auto รีโรลไอดี" style="margin-top: 12px;">
+              <img class="video-thumb" src="https://img.youtube.com/vi/_TRvufTZv_I/hqdefault.jpg" alt="">
+              <div class="play-btn"></div>
+              <div class="video-title-overlay">สอนใช้โปรแกรม Auto รีโรลไอดี ทำขายได้ ไม่โดนแบน</div>
             </button>
             <div class="video-slot-note">แนะนำให้อัปโหลดวิดีโอเป็น YouTube แบบไม่แสดงสาธารณะ แล้วนำลิงก์มาใส่ตรงนี้เพื่อให้เปิดบนมือถือและคอมได้ลื่นกว่าไฟล์วิดีโอตรง</div>
           </div>
