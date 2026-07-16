@@ -20,7 +20,7 @@ import screen_license_store
 
 
 APP_NAME = "JLmain"
-APP_DISPLAY_VERSION = "V2.0.1 Premium"
+APP_DISPLAY_VERSION = "V2.0.2 Premium"
 license_core.CLIENT_VERSION = APP_DISPLAY_VERSION
 RELEASE_MODE = bool(getattr(sys, "frozen", False))
 

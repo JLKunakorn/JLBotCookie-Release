@@ -13,6 +13,7 @@ import datetime
 import json
 import socket
 import traceback
+from pathlib import Path
 from enum import Enum, auto
 import cv2
 import numpy as np
@@ -59,6 +60,57 @@ def _run(cmd, **kw):
 _DEFAULT_ADB = 'D:\\LDPlayer\\LDPlayer14\\adb.exe'
 MULTI_EMU = True
 
+
+def _iter_drives():
+    """Return every drive root that currently exists on this machine."""
+    import string
+
+    drives = []
+    for letter in string.ascii_uppercase:
+        root = f'{letter}:\\'
+        try:
+            if os.path.exists(root):
+                drives.append(root)
+        except OSError:
+            continue
+    return drives
+
+
+def _glob_install_candidate(patterns):
+    """Return the first installed file matching a pattern on any drive."""
+    for drive in _iter_drives():
+        root = Path(drive)
+        for pattern in patterns:
+            try:
+                matches = root.glob(pattern)
+                for path in matches:
+                    try:
+                        if path.is_file():
+                            return str(path)
+                    except OSError:
+                        continue
+            except (OSError, ValueError):
+                continue
+    return None
+
+
+def _ld_glob_patterns(executable):
+    prefixes = [
+        '',
+        'LDPlayer',
+        'ChangZhi',
+        'Program Files',
+        'Program Files/LDPlayer',
+        'Program Files/ChangZhi',
+        'Program Files (x86)',
+        'Program Files (x86)/LDPlayer',
+        'Program Files (x86)/ChangZhi',
+    ]
+    return [
+        f'{prefix + "/" if prefix else ""}LDPlayer*/{executable}'
+        for prefix in prefixes
+    ]
+
 def _emu_adb_paths():
     out = []
     for d in ['C:\\', 'D:\\', 'E:\\']:
@@ -101,7 +153,16 @@ def find_adb():
 def find_ld_adb():
     """Return LDPlayer adb.exe when installed, otherwise None."""
     cands = [_DEFAULT_ADB]
-    roots = ['D:\\LDPlayer', 'C:\\LDPlayer', 'E:\\LDPlayer', 'C:\\Program Files\\LDPlayer', 'C:\\Program Files (x86)\\LDPlayer', 'D:\\Program Files\\LDPlayer', 'C:\\ChangZhi', 'D:\\ChangZhi']
+    roots = []
+    for drive in _iter_drives():
+        roots.extend(
+            [
+                os.path.join(drive, 'LDPlayer'),
+                os.path.join(drive, 'Program Files', 'LDPlayer'),
+                os.path.join(drive, 'Program Files (x86)', 'LDPlayer'),
+                os.path.join(drive, 'ChangZhi'),
+            ]
+        )
     subs = ['LDPlayer14', 'LDPlayer9', 'LDPlayer64', 'LDPlayer4', '']
     for r in roots:
         for s in subs:
@@ -109,12 +170,12 @@ def find_ld_adb():
     for c in cands:
         if os.path.exists(c):
             return c
-    return None
+    return _glob_install_candidate(_ld_glob_patterns('adb.exe'))
 
 def find_mumu_adb():
     """Return MuMu adb executable when installed, otherwise None."""
     cands = []
-    for d in ['C:\\', 'D:\\', 'E:\\']:
+    for d in _iter_drives():
         for pf in ['Program Files', 'Program Files (x86)']:
             base = os.path.join(d, pf)
             for mm in ['Netease\\MuMu Player 12', 'Netease\\MuMuPlayer-12.0', 'Netease\\MuMuPlayerGlobal-12.0', 'Netease\\MuMu Player', 'MuMu Player 12', 'MuMuPlayer-12.0', 'MuMuGlobal-12.0']:
@@ -124,27 +185,49 @@ def find_mumu_adb():
     for c in cands:
         if os.path.exists(c):
             return c
-    return None
+    patterns = []
+    for pf in ('Program Files', 'Program Files (x86)'):
+        patterns.extend(
+            [
+                f'{pf}/Netease/*/nx_main/adb.exe',
+                f'{pf}/Netease/*/nx_device/*/shell/adb.exe',
+                f'{pf}/Netease/*/shell/adb.exe',
+                f'{pf}/MuMuPlayer*/nx_main/adb.exe',
+            ]
+        )
+    return _glob_install_candidate(patterns)
 
 
 def find_ld_console():
-    roots = [
-        'C:\\LDPlayer', 'D:\\LDPlayer', 'E:\\LDPlayer',
-        'C:\\Program Files\\LDPlayer', 'C:\\Program Files (x86)\\LDPlayer',
-        'D:\\Program Files\\LDPlayer', 'C:\\ChangZhi', 'D:\\ChangZhi',
-    ]
+    roots = []
+    for drive in _iter_drives():
+        roots.extend(
+            [
+                os.path.join(drive, 'LDPlayer'),
+                os.path.join(drive, 'Program Files', 'LDPlayer'),
+                os.path.join(drive, 'Program Files (x86)', 'LDPlayer'),
+                os.path.join(drive, 'ChangZhi'),
+            ]
+        )
     for root in roots:
         for sub in ['LDPlayer14', 'LDPlayer9', 'LDPlayer64', 'LDPlayer4', '']:
             for exe in ['ldconsole.exe', 'dnconsole.exe']:
                 path = os.path.join(root, sub, exe)
                 if os.path.exists(path):
+                    print(f'[emu-discovery] LDPlayer console found (fixed): {path}')
                     return path
+    for exe in ('ldconsole.exe', 'dnconsole.exe'):
+        path = _glob_install_candidate(_ld_glob_patterns(exe))
+        if path:
+            print(f'[emu-discovery] LDPlayer console found (glob fallback): {path}')
+            return path
+    print('[emu-discovery] LDPlayer console not found')
     return None
 
 
 def find_mumu_manager():
     candidates = []
-    for drive in ['C:\\', 'D:\\', 'E:\\']:
+    for drive in _iter_drives():
         for folder in ['Program Files', 'Program Files (x86)']:
             base = os.path.join(drive, folder)
             candidates.extend(
@@ -156,7 +239,21 @@ def find_mumu_manager():
             )
     for path in candidates:
         if os.path.exists(path):
+            print(f'[emu-discovery] MuMu manager found (fixed): {path}')
             return path
+    patterns = []
+    for folder in ('Program Files', 'Program Files (x86)'):
+        patterns.extend(
+            [
+                f'{folder}/Netease/*/nx_main/MuMuManager.exe',
+                f'{folder}/Netease/*/MuMuManager.exe',
+            ]
+        )
+    path = _glob_install_candidate(patterns)
+    if path:
+        print(f'[emu-discovery] MuMu manager found (glob fallback): {path}')
+        return path
+    print('[emu-discovery] MuMu manager not found')
     return None
 
 
@@ -187,8 +284,14 @@ def _ld_running_indices():
             parsed_rows += 1
             if android_started and player_pid > 0:
                 indexes.append(index)
-        return indexes if parsed_rows else None
-    except Exception:
+        parsed = indexes if parsed_rows else None
+        print(
+            f'[emu-discovery] LDPlayer manager parse='
+            f'{"ok" if parsed is not None else "invalid"}; running={len(indexes)}'
+        )
+        return parsed
+    except Exception as exc:
+        print(f'[emu-discovery] LDPlayer manager parse failed: {exc}')
         return None
 
 
@@ -231,13 +334,19 @@ def _mumu_running_ports():
                 continue
             if port > 0:
                 ports.append(port)
-        return ports if parsed_rows else None
-    except Exception:
+        parsed = ports if parsed_rows else None
+        print(
+            f'[emu-discovery] MuMu manager parse='
+            f'{"ok" if parsed is not None else "invalid"}; running={len(ports)}'
+        )
+        return parsed
+    except Exception as exc:
+        print(f'[emu-discovery] MuMu manager parse failed: {exc}')
         return None
 
 EMU_PROFILES = {
     'LDPlayer': {'find_adb': find_ld_adb, 'ports': [5555 + i * 2 for i in range(20)]},
-    'MuMu': {'find_adb': find_mumu_adb, 'ports': [16384 + i * 32 for i in range(20)]},
+    'MuMu': {'find_adb': find_mumu_adb, 'ports': [16384 + i * 32 for i in range(20)] + [7555]},
 }
 
 def adb_path_for_emu(emu):
@@ -360,6 +469,7 @@ def list_emu_instances(emu):
     # important distinction is that unparseable output returns None and still
     # reaches the compatibility fallback below.
     if manager_result == []:
+        print(f'[emu-discovery] {emu}: source=manager; manager_hints=0; matched=0')
         return []
 
     ports = list(dict.fromkeys(ports + sorted(hinted_ports)))
@@ -409,17 +519,18 @@ def list_emu_instances(emu):
             continue
         seen_slots.add(slot)
         unique.append(serial)
+    source = 'manager' if manager_result is not None else 'adb fallback'
+    print(
+        f'[emu-discovery] {emu}: source={source}; manager_hints={len(hinted_ports)}; '
+        f'online={len(online_devices)}; matched={len(unique)}'
+    )
     return unique
 
 
-def discover_emu_instances(selection=None):
-    """Discover LDPlayer and/or MuMu instances with the correct ADB per row."""
-    names = ['LDPlayer', 'MuMu'] if selection in (None, '', 'LDPlayer + MuMu') else [selection]
+def _discover_emu_instances_once(names):
     found = []
     seen = set()
     for emu in names:
-        if emu not in EMU_PROFILES:
-            continue
         adb_path = adb_path_for_emu(emu)
         for serial in list_emu_instances(emu):
             identity = (emu, serial)
@@ -436,6 +547,24 @@ def discover_emu_instances(selection=None):
             )
     return found
 
+
+def discover_emu_instances(selection=None):
+    """Discover instances, restarting a stale ADB server once when empty."""
+    names = ['LDPlayer', 'MuMu'] if selection in (None, '', 'LDPlayer + MuMu') else [selection]
+    names = [emu for emu in names if emu in EMU_PROFILES]
+    found = _discover_emu_instances_once(names)
+    if found or not names:
+        return found
+
+    print('[WARN] ไม่พบเครื่องเลยในรอบแรก ลอง kill adb server แล้วค้นหาใหม่...')
+    adb_path = adb_path_for_emu(names[0])
+    try:
+        _run([adb_path, 'kill-server'], timeout=5)
+    except Exception as exc:
+        print(f'[emu-discovery] adb kill-server failed: {exc}')
+    time.sleep(1.0)
+    return _discover_emu_instances_once(names)
+
 def _label_for_serial(serial, emu='Emulator'):
     """Format adb serials as a friendlier instance name."""
     port = None
@@ -448,8 +577,8 @@ def _label_for_serial(serial, emu='Emulator'):
         port = None
     if port is None:
         return '%s - %s' % (emu, serial)
-    if emu == 'MuMu' and port >= 16384:
-        idx = max(0, (port - 16384) // 32)
+    if emu == 'MuMu':
+        idx = max(0, (port - 16384) // 32) if port >= 16384 else 0
     elif port >= 5554:
         base = 5554 if serial.startswith('emulator-') else 5555
         idx = max(0, (port - base) // 2)
