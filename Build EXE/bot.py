@@ -319,7 +319,7 @@ def _mumu_running_ports():
         for item in values:
             if not isinstance(item, dict):
                 continue
-            if not any(key in item for key in ('is_process_started', 'is_android_started', 'adb_port')):
+            if not any(key in item for key in ('is_process_started', 'is_android_started', 'adb_port', 'index')):
                 continue
             parsed_rows += 1
 
@@ -331,7 +331,16 @@ def _mumu_running_ports():
             try:
                 port = int(item.get('adb_port') or 0)
             except (TypeError, ValueError):
-                continue
+                port = 0
+            if port <= 0:
+                # Some MuMuManager builds (observed on the Android 15 "AD15" line)
+                # dropped adb_port from `info -v all`. The multi-instance port
+                # scheme itself (16384 + index * 32) is unchanged, so derive it
+                # from the still-present index instead of losing the instance.
+                try:
+                    port = 16384 + int(item.get('index')) * 32
+                except (TypeError, ValueError):
+                    continue
             if port > 0:
                 ports.append(port)
         parsed = ports if parsed_rows else None
