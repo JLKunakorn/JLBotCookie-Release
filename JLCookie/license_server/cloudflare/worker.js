@@ -1285,6 +1285,51 @@ function discordDeliveredReply(env, order, key, reused = false) {
   };
 }
 
+async function claimDiscordRole(req, env) {
+  if (!isDiscordShop(req, env)) return discordShopUnauthorized();
+  const body = await readJson(req);
+  const code = cleanCode(body.code);
+  const discordUserId = cleanText(body.discord_user_id);
+  const now = Math.floor(Date.now() / 1000);
+
+  if (!code) return json({ ok: false, msg: "คีย์ไม่ถูกต้อง" }, 400);
+  if (!/^\d{17,20}$/.test(discordUserId)) {
+    return json({ ok: false, msg: "Discord identity invalid" }, 400);
+  }
+
+  const key = await discordKeyRow(env, code);
+  if (!key) return json({ ok: false, msg: "คีย์ไม่ถูกต้อง" }, 404);
+  if (key.revoked) return json({ ok: false, msg: "คีย์ถูกระงับ" }, 409);
+  if (key.status !== "delivered") return json({ ok: false, msg: "คีย์นี้ยังไม่ได้ถูกส่งจากร้าน" }, 409);
+
+  const lifetime = isLifetimeDuration(key.duration_days);
+  if (!lifetime && key.expires_at && now > Number(key.expires_at)) {
+    return json({ ok: false, msg: "คีย์หมดอายุ", expired: true }, 409);
+  }
+
+  const tier = resolveTier(key.tier);
+  const existing = await env.DB.prepare(
+    "SELECT discord_user_id FROM discord_roles WHERE code = ?",
+  ).bind(code).first();
+
+  if (existing && existing.discord_user_id !== discordUserId) {
+    return json({ ok: false, msg: "คีย์นี้ถูกใช้รับยศไปแล้วโดยบัญชี Discord อื่น" }, 409);
+  }
+
+  if (existing) {
+    await env.DB.prepare(
+      "UPDATE discord_roles SET tier = ?, is_lifetime = ?, last_checked_at = ? WHERE code = ?",
+    ).bind(tier, lifetime ? 1 : 0, now, code).run();
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO discord_roles(code, discord_user_id, tier, is_lifetime, assigned_at, last_checked_at)
+       VALUES(?, ?, ?, ?, ?, ?)`,
+    ).bind(code, discordUserId, tier, lifetime ? 1 : 0, now, now).run();
+  }
+
+  return json({ ok: true, tier, is_lifetime: lifetime, expires_at: key.expires_at || null });
+}
+
 async function createDiscordShopOrder(req, env) {
   if (!isDiscordShop(req, env)) return discordShopUnauthorized();
   const body = await readJson(req);
@@ -2923,6 +2968,7 @@ export default {
     if (req.method === "POST" && url.pathname === "/api/verify") return verify(req, env);
     if (req.method === "GET" && url.pathname === "/api/discord-shop/plans") return discordShopPlans(req, env);
     if (req.method === "POST" && url.pathname === "/api/discord-shop/orders") return createDiscordShopOrder(req, env);
+    if (req.method === "POST" && url.pathname === "/api/discord-shop/claim-role") return claimDiscordRole(req, env);
     if (req.method === "GET" && url.pathname === "/api/shop/plans") return shopPlans(env);
     if (req.method === "GET" && url.pathname === "/api/shop/activity") return shopActivity(env);
     if (req.method === "POST" && url.pathname === "/api/auth/register") return registerUser(req, env);
