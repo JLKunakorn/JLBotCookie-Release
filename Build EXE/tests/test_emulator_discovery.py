@@ -141,6 +141,29 @@ def test_manager_parsers_distinguish_invalid_output_from_no_running_instances(mo
     assert bot._mumu_running_ports() == [16448]
 
 
+def test_mumu_port_falls_back_to_index_when_adb_port_is_missing(monkeypatch):
+    """MuMuManager on the Android 15 "AD15" line drops adb_port from info -v all
+    (observed live on a real upgraded MuMu install) but still reports index."""
+    monkeypatch.setattr(bot, "find_mumu_manager", lambda: "MuMuManager.exe")
+    payload = {
+        "3": {
+            "index": "3",
+            "android_version": "12.0",
+            "is_process_started": True,
+            "is_android_started": True,
+        },
+        "4": {
+            "index": "4",
+            "android_version": "15.0",
+            "is_process_started": True,
+            "is_android_started": True,
+        },
+    }
+    raw = json.dumps(payload).encode("utf-8")
+    monkeypatch.setattr(bot, "_run", lambda *_args, **_kwargs: SimpleNamespace(stdout=raw))
+    assert bot._mumu_running_ports() == [16480, 16512]
+
+
 def test_manager_ports_extend_the_adb_scan_without_replacing_it(monkeypatch):
     monkeypatch.setattr(bot, "adb_path_for_emu", lambda _emu: "adb.exe")
     monkeypatch.setattr(bot, "_mumu_running_ports", lambda: [7555])
