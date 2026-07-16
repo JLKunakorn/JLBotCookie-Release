@@ -150,6 +150,11 @@ for (const [planCode, price] of Object.entries(expectedPrices)) {
   assert(publicHtml.includes(`code: "${planCode}", price: ${price}`), `public plan missing: ${planCode}`);
 }
 assert(publicHtml.includes("https://discord.gg/zsky5XS7HU"), "Discord contact link missing");
+assert(publicHtml.includes("Premium VS ProMax ต่างกันอย่างไร?"), "Premium/ProMax comparison missing");
+assert(publicHtml.includes("ระบบแก้ CAPTCHA อัตโนมัติ"), "Premium feature list incomplete");
+assert(publicHtml.includes("รีโรลไอดีอัตโนมัติได้ไม่จำกัดรอบ"), "ProMax feature list incomplete");
+assert(publicHtml.includes("ไม่ส่งภาพเกมหรือคำสั่งเล่นไปประมวลผลบนเซิร์ฟเวอร์ของร้าน"), "local-processing disclosure missing");
+assert(!publicHtml.includes("Local 100%"), "misleading Local 100% claim must not be published");
 const tutorialVideoIds = ["PIKEcDoKbZY", "2tCCZyq2Znc", "A1NXQAv5N24", "lttfV0-onYw", "_TRvufTZv_I"];
 for (const videoId of tutorialVideoIds) {
   assert(publicHtml.includes(videoId), `tutorial video missing: ${videoId}`);

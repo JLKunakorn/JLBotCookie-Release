@@ -439,7 +439,89 @@
       line-height: 1.45;
     }
 
+    .home-main-stack,
     .side-stack { display: grid; gap: 14px; }
+
+    .comparison-card {
+      border-color: rgba(245, 158, 11, 0.34);
+      background:
+        linear-gradient(145deg, rgba(59, 130, 246, 0.05), rgba(245, 158, 11, 0.06)),
+        rgba(15, 23, 42, 0.9);
+    }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .comparison-tier {
+      min-width: 0;
+      padding: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 12px;
+      background: rgba(2, 6, 23, 0.34);
+    }
+
+    .comparison-tier.premium { border-color: rgba(96, 165, 250, 0.34); }
+    .comparison-tier.promax { border-color: rgba(245, 158, 11, 0.48); }
+
+    .comparison-tier h3 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 17px;
+    }
+
+    .feature-check-list {
+      display: grid;
+      gap: 8px;
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+      color: var(--soft);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .feature-check-list li {
+      position: relative;
+      padding-left: 21px;
+    }
+
+    .feature-check-list li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      top: 0;
+      color: var(--green);
+      font-weight: 900;
+    }
+
+    .comparison-tier.promax .feature-check-list li::before { color: var(--amber2); }
+
+    .tier-fit {
+      margin: 14px 0 0;
+      padding-top: 12px;
+      border-top: 1px solid rgba(148, 163, 184, 0.13);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    .local-safety-note {
+      margin-top: 12px;
+      padding: 14px;
+      border: 1px solid rgba(34, 197, 94, 0.28);
+      border-radius: 12px;
+      background: rgba(34, 197, 94, 0.06);
+      color: var(--soft);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .local-safety-note strong { color: #86efac; }
 
     .card { padding: 18px; }
 
@@ -1074,7 +1156,8 @@
       .package-grid,
       .form-grid,
       .info-grid,
-      .contact-grid {
+      .contact-grid,
+      .comparison-grid {
         grid-template-columns: 1fr;
       }
 
@@ -1141,42 +1224,96 @@
         <span class="activity-text" data-activity-text></span>
       </div>
       <div class="home-layout">
-        <div class="hero-panel">
-          <div>
-            <div class="hero-kicker">
-              <span class="pill amber">เริ่มต้น 15.- เท่านั้น</span>
-              <span class="pill green">1 key ต่อ 1 เครื่อง</span>
-              <span class="pill">รองรับทุกฟังก์ชัน</span>
+        <div class="home-main-stack">
+          <div class="hero-panel">
+            <div>
+              <div class="hero-kicker">
+                <span class="pill amber">เริ่มต้น 15.- เท่านั้น</span>
+                <span class="pill green">1 key ต่อ 1 เครื่อง</span>
+                <span class="pill">รองรับทุกฟังก์ชัน</span>
+              </div>
+              <h1 class="hero-title"><span>JL Bot Cookie</span> บอทคุกกี้รัน Cookie Run Classic สำหรับฟาร์มเหรียญอัตโนมัติ</h1>
+              <p class="hero-copy">
+                เปิดโปรแกรม เลือกอีมูเลเตอร์ วาง License Key แล้วปล่อยให้บอทวิ่ง กระโดด สไลด์ ต่อชีพ และเก็บเหรียญแทนคุณ เหมาะสำหรับคนที่อยากเปิดฟาร์มทิ้งไว้โดยไม่ต้องนั่งเล่นเอง
+              </p>
+              <div class="actions-row">
+                <button class="btn" type="button" data-route="buy">เลือกแพ็กเกจ</button>
+              </div>
             </div>
-            <h1 class="hero-title"><span>JL Bot Cookie</span> บอทคุกกี้รัน Cookie Run Classic สำหรับฟาร์มเหรียญอัตโนมัติ</h1>
-            <p class="hero-copy">
-              เปิดโปรแกรม เลือกอีมูเลเตอร์ วาง License Key แล้วปล่อยให้บอทวิ่ง กระโดด สไลด์ ต่อชีพ และเก็บเหรียญแทนคุณ เหมาะสำหรับคนที่อยากเปิดฟาร์มทิ้งไว้โดยไม่ต้องนั่งเล่นเอง
-            </p>
-            <div class="actions-row">
-              <button class="btn" type="button" data-route="buy">เลือกแพ็กเกจ</button>
+
+            <div class="quick-grid">
+              <div class="quick-card">
+                <b>1</b>
+                <strong>สมัครหรือเข้าสู่ระบบ</strong>
+                <span>ใช้ชื่อผู้ใช้และรหัสผ่านสำหรับดูประวัติย้อนหลัง</span>
+              </div>
+              <div class="quick-card">
+                <b>2</b>
+                <strong>เลือกแพ็ก</strong>
+                <span>เลือกได้ 1, 3, 7, 30 วัน หรือ Lifetime</span>
+              </div>
+              <div class="quick-card">
+                <b>3</b>
+                <strong>สแกนจ่ายและอัปสลิป</strong>
+                <span>รายการจะถูกผูกกับบัญชีลูกค้า</span>
+              </div>
+              <div class="quick-card">
+                <b>4</b>
+                <strong>รับคีย์และไฟล์ล่าสุด</strong>
+                <span>ดูได้จากบัญชีของฉันหลังรายการผ่าน</span>
+              </div>
             </div>
           </div>
 
-          <div class="quick-grid">
-            <div class="quick-card">
-              <b>1</b>
-              <strong>สมัครหรือเข้าสู่ระบบ</strong>
-              <span>ใช้ชื่อผู้ใช้และรหัสผ่านสำหรับดูประวัติย้อนหลัง</span>
+          <div class="card comparison-card">
+            <div class="card-head">
+              <div>
+                <h2>Premium VS ProMax ต่างกันอย่างไร?</h2>
+                <p>เลือกเวอร์ชันให้เหมาะกับรูปแบบการใช้งานของคุณ</p>
+              </div>
+              <span class="pill amber">เปรียบเทียบฟังก์ชัน</span>
             </div>
-            <div class="quick-card">
-              <b>2</b>
-              <strong>เลือกแพ็ก</strong>
-              <span>เลือกได้ 1, 3, 7, 30 วัน หรือ Lifetime</span>
+
+            <div class="comparison-grid">
+              <article class="comparison-tier premium">
+                <h3><span>JL BOT Premium</span><span class="pill">ใช้งานทั่วไป</span></h3>
+                <ul class="feature-check-list">
+                  <li>เล่นเกมและฟาร์มเหรียญอัตโนมัติ</li>
+                  <li>จำลองจังหวะการกระทำของผู้เล่น</li>
+                  <li>ระบบแก้ CAPTCHA อัตโนมัติ</li>
+                  <li>สุ่มกล่องของขวัญ</li>
+                  <li>ส่งหัวใจให้เพื่อน</li>
+                  <li>ย่อยสมบัติและปั๊มผง</li>
+                  <li>เลือก Multi เองได้</li>
+                  <li>รับ Mail อัตโนมัติ</li>
+                  <li>รับ Relic อัตโนมัติ</li>
+                  <li>ทำงานต่อเนื่องเมื่อย่อหรือพับหน้าต่างอีมูเลเตอร์ เหมาะสำหรับเปิดทิ้ง 24 ชั่วโมง</li>
+                  <li>ใช้งาน 1 จอต่อ 1 คีย์ และซื้อคีย์เพิ่มเพื่อเพิ่มจอได้</li>
+                </ul>
+                <p class="tier-fit"><strong>เหมาะกับ:</strong> ผู้ใช้ที่ต้องการบอทสำหรับฟาร์มเป็นประจำ และใช้งานระบบพื้นฐานแบบครบถ้วน</p>
+              </article>
+
+              <article class="comparison-tier promax">
+                <h3><span>JL BOT ProMax</span><span class="pill amber">ครบที่สุด</span></h3>
+                <ul class="feature-check-list">
+                  <li>รวมทุกฟังก์ชันที่มีใน Premium</li>
+                  <li>รีโรลไอดีอัตโนมัติได้ไม่จำกัดรอบ</li>
+                  <li>ปั๊มกิจกรรมเชิญเพื่อนชุดละ 29 คนได้ไม่จำกัดรอบ</li>
+                  <li>ปั๊มหัวใจได้ไม่จำกัดรอบ</li>
+                  <li>เข้าบัญชีและเปลี่ยน Guest ได้ไม่จำกัดรอบ</li>
+                  <li>กรองสัตว์เลี้ยงและสมบัติที่ต้องการ</li>
+                  <li>รองรับหลายหน้าจอภายในโปรแกรม โดยขึ้นกับทรัพยากรเครื่อง</li>
+                  <li>บันทึกมาโครการเล่นและสุ่มเลือกชุดมาโคร</li>
+                  <li>นำเข้า ส่งออก และแชร์ไฟล์การเล่น</li>
+                  <li>ตรวจสอบและสลับ Cloudflare WARP 1.1.1.1 อัตโนมัติ</li>
+                  <li>รองรับฟังก์ชันใหม่ที่จะเพิ่มในอนาคต</li>
+                </ul>
+                <p class="tier-fit"><strong>เหมาะกับ:</strong> ผู้ใช้จริงจัง งานหลายจอ งานรีโรล หรือผู้ที่ต้องการใช้ระบบเพื่อสร้างรายได้เพิ่มเติม</p>
+              </article>
             </div>
-            <div class="quick-card">
-              <b>3</b>
-              <strong>สแกนจ่ายและอัปสลิป</strong>
-              <span>รายการจะถูกผูกกับบัญชีลูกค้า</span>
-            </div>
-            <div class="quick-card">
-              <b>4</b>
-              <strong>รับคีย์และไฟล์ล่าสุด</strong>
-              <span>ดูได้จากบัญชีของฉันหลังรายการผ่าน</span>
+
+            <div class="local-safety-note">
+              <strong>ประมวลผลการเล่นภายในเครื่อง:</strong> การอ่านภาพและสั่งคลิกทำผ่านอีมูเลเตอร์บนคอมพิวเตอร์ของผู้ใช้ ไม่ส่งภาพเกมหรือคำสั่งเล่นไปประมวลผลบนเซิร์ฟเวอร์ของร้าน ส่วนการตรวจ License การอัปเดต ดาวน์โหลด และชำระเงินยังต้องใช้อินเทอร์เน็ตตามปกติ ระบบจำลองจังหวะของผู้เล่นช่วยลดรูปแบบการกดซ้ำ แต่ไม่มีระบบอัตโนมัติใดรับประกันความเสี่ยงการระงับบัญชีเป็นศูนย์ โปรดใช้งานตามเงื่อนไขของเกม
             </div>
           </div>
         </div>
