@@ -573,6 +573,112 @@
       gap: 12px;
       align-items: center;
     }
+
+    /* --- Reset HWID: sci-fi themed panel --- */
+    .sci-card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(56, 189, 248, 0.32);
+      background:
+        linear-gradient(160deg, rgba(56, 189, 248, 0.09), transparent 55%),
+        radial-gradient(circle at 90% 0%, rgba(168, 85, 247, 0.12), transparent 45%),
+        rgba(2, 6, 23, 0.6);
+      box-shadow:
+        0 0 0 1px rgba(56, 189, 248, 0.08),
+        0 18px 48px rgba(2, 6, 23, 0.55),
+        0 0 30px rgba(56, 189, 248, 0.07);
+    }
+    .sci-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        180deg,
+        rgba(56, 189, 248, 0.035) 0px,
+        rgba(56, 189, 248, 0.035) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      pointer-events: none;
+    }
+    .sci-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font: 700 12px/1 "Outfit", monospace;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #7dd3fc;
+      text-shadow: 0 0 12px rgba(56, 189, 248, 0.55);
+    }
+    .sci-eyebrow::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 10px 2px rgba(56, 189, 248, 0.85);
+      animation: sci-pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes sci-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    .sci-reset-list {
+      display: grid;
+      gap: 12px;
+    }
+    .sci-reset-row {
+      position: relative;
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      border-radius: var(--radius);
+      background: rgba(8, 15, 35, 0.6);
+      padding: 14px 16px;
+      display: grid;
+      gap: 10px;
+    }
+    .sci-reset-row .key-code {
+      color: #7dd3fc !important;
+      text-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+    }
+    .sci-reset-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .sci-quota-bar {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.15);
+      overflow: hidden;
+    }
+    .sci-quota-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #38bdf8, #a855f7);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+      transition: width 0.4s ease;
+    }
+    .sci-quota-fill.unlimited {
+      background: linear-gradient(90deg, #ec4899, #a855f7, #38bdf8);
+      width: 100% !important;
+    }
+    .sci-pill-tier {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    .sci-pill-tier.premium { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .sci-pill-tier.promax { background: rgba(168, 85, 247, 0.15); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); }
+    .sci-pill-tier.lifetime { background: rgba(236, 72, 153, 0.16); color: #f9a8d4; border: 1px solid rgba(236, 72, 153, 0.45); }
     .auth-box {
       max-width: 480px;
       width: 100%;
@@ -1203,6 +1309,7 @@
         <button class="tab active" type="button" data-route="home">หน้าหลัก</button>
         <button class="tab" type="button" data-route="buy">ซื้อคีย์</button>
         <button class="tab" type="button" data-route="account">บัญชีของฉัน</button>
+        <button class="tab" type="button" data-route="reset-hwid">🛰️ Reset HWID</button>
         <button class="tab" type="button" data-route="guide">วิธีการใช้งาน</button>
         <button class="tab" type="button" data-route="download">ดาวน์โหลด</button>
         <button class="tab" type="button" data-route="contact">ช่องทางการติดต่อ</button>
@@ -1741,6 +1848,30 @@
       </div>
     </section>
 
+    <section class="view" id="view-reset-hwid">
+      <div class="page-head">
+        <div>
+          <span class="sci-eyebrow">Device Bind // Control</span>
+          <h1 class="page-title">Reset HWID</h1>
+          <p class="page-desc">
+            ปลดผูกเครื่องเดิมออกจากคีย์ของคุณเอง โดยไม่ต้องรอแอดมิน — จำนวนครั้งที่รีเซ็ตได้ขึ้นกับระดับคีย์
+            (⭐ Premium 2 ครั้ง • 👑 ProMax 5 ครั้ง • ♾️ Lifetime ไม่จำกัด) สิทธิ์จะรีเฟรชใหม่ทุกครั้งที่คีย์ถูกต่ออายุ
+          </p>
+        </div>
+      </div>
+
+      <div class="card sci-card">
+        <div class="card-head">
+          <div>
+            <h2>คีย์ในบัญชีของคุณ</h2>
+            <p>เลือกคีย์ที่ต้องการปลดผูกเครื่องเดิม เพื่อนำไปเปิดใช้งานในเครื่องใหม่</p>
+          </div>
+          <span class="pill green" id="resetHwidCount">0 รายการ</span>
+        </div>
+        <div class="sci-reset-list" id="resetHwidList"></div>
+      </div>
+    </section>
+
     <section class="view" id="view-guide">
       <div class="page-head">
         <div>
@@ -1953,7 +2084,9 @@
       giftList: document.getElementById("giftList"),
       giftCount: document.getElementById("giftCount"),
       latestKeyBox: document.getElementById("latestKeyBox"),
-      latestStatus: document.getElementById("latestStatus")
+      latestStatus: document.getElementById("latestStatus"),
+      resetHwidList: document.getElementById("resetHwidList"),
+      resetHwidCount: document.getElementById("resetHwidCount")
     };
 
     let selectedPlan = "7 วัน";
@@ -2279,10 +2412,12 @@
     async function loadAccountData() {
       if (!session.token) {
         renderAccount();
+        renderResetHwid();
         return;
       }
       const [ordersResult, giftsResult] = await Promise.allSettled([refreshOrders(), refreshGifts()]);
       renderAccount();
+      renderResetHwid();
       if (ordersResult.status === "rejected") {
         els.orderList.innerHTML = `<div class="empty-state">${esc(ordersResult.reason.message)}</div>`;
       }
@@ -2315,6 +2450,7 @@
       document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${target}`));
       document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.route === target));
       if (target === "account") loadAccountData();
+      if (target === "reset-hwid") loadAccountData();
       if (target === "download") renderDownloadView();
       if (target === "buy") {
         renderAuthState();
@@ -2384,12 +2520,8 @@
         const expiresText = order.status !== "delivered"
           ? "เริ่มนับหลังร้านส่งคีย์"
           : (keyDurationDays === 0 ? "ไม่มีวันหมดอายุ" : formatDate(orderExpiresMs(order) / 1000));
-        const resetCount = Math.max(0, Number(order.hwid_reset_count || 0));
-        const resetRemaining = Math.max(0, 2 - resetCount);
-        const resetButton = order.status === "delivered" && order.key_code && [0, 30].includes(keyDurationDays)
-          ? `<button class="btn secondary" type="button" data-reset-device="${esc(order.key_code)}" ${resetRemaining === 0 ? "disabled" : ""} style="min-height:34px; padding:0 10px; margin-top:10px; font-size:12px;">
-               รีเซ็ตเครื่อง (เหลือ ${resetRemaining}/2 ครั้ง)
-             </button>`
+        const resetHint = order.status === "delivered" && order.key_code
+          ? `<span style="grid-column: 1 / -1; font-size: 12px; color: var(--muted);">ต้องการย้ายเครื่อง? ไปที่แท็บ 🛰️ Reset HWID</span>`
           : "";
         return `
           <div class="order-row">
@@ -2399,7 +2531,7 @@
             <strong class="key-code">${esc(keyText)}</strong>
             <span>เวลาจะเริ่มนับถอยหลังเมื่อร้านอนุมัติส่งคีย์แล้ว</span>
             <strong>หมดอายุ: ${esc(expiresText)}</strong>
-            ${resetButton}
+            ${resetHint}
           </div>
         `;
       }).join("") : `<div class="empty-state">ยังไม่มีรายการซื้อ กดซื้อคีย์เพื่อเริ่มใช้งาน</div>`;
@@ -2455,6 +2587,61 @@
       document.getElementById("copyLatestKey").addEventListener("click", copyLatestKey);
       document.getElementById("downloadLatestBtn").addEventListener("click", () => showView("download"));
       startKeyCountdown(orderExpiresMs(latest));
+    }
+
+    function tierPillHtml(tier, isLifetime) {
+      if (isLifetime) return `<span class="sci-pill-tier lifetime">♾️ Lifetime</span>`;
+      if (tier === "promax") return `<span class="sci-pill-tier promax">👑 ProMax</span>`;
+      return `<span class="sci-pill-tier premium">⭐ Premium</span>`;
+    }
+
+    function renderResetHwid() {
+      const user = currentUser();
+      if (!user) {
+        els.resetHwidCount.textContent = "ยังไม่ได้เข้าสู่ระบบ";
+        els.resetHwidList.innerHTML = `<div class="empty-state">เข้าสู่ระบบเพื่อจัดการการผูกเครื่องของคีย์คุณ</div>`;
+        return;
+      }
+
+      const deliveredKeys = accountOrders
+        .filter((order) => order.status === "delivered" && order.key_code)
+        .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+
+      els.resetHwidCount.textContent = `${deliveredKeys.length} รายการ`;
+      els.resetHwidList.innerHTML = deliveredKeys.length ? deliveredKeys.map((order) => {
+        const keyDurationDays = Number(order.key_duration_days ?? order.duration_days);
+        const isLifetime = keyDurationDays === 0;
+        const quota = Number(order.hwid_reset_quota ?? (isLifetime ? -1 : 2));
+        const used = Math.max(0, Number(order.hwid_reset_count || 0));
+        const unlimited = quota < 0;
+        const remaining = unlimited ? Infinity : Math.max(0, quota - used);
+        const fillPct = unlimited ? 100 : (quota > 0 ? Math.max(6, 100 - (used / quota) * 100) : 0);
+        const disabled = !unlimited && remaining <= 0;
+        return `
+          <div class="sci-reset-row">
+            <div class="sci-reset-head">
+              <div>
+                ${tierPillHtml(order.key_tier, isLifetime)}
+                <strong class="key-code" style="margin-left: 8px;">${esc(order.key_code)}</strong>
+              </div>
+              <span style="font-size: 12px; color: var(--muted); font-family: monospace;">
+                ${unlimited ? "สิทธิ์ไม่จำกัด ∞" : `ใช้ไป ${used}/${quota} ครั้ง`}
+              </span>
+            </div>
+            <div class="sci-quota-bar">
+              <div class="sci-quota-fill ${unlimited ? "unlimited" : ""}" style="width: ${unlimited ? 100 : fillPct}%;"></div>
+            </div>
+            <div style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span style="font-size: 12px; color: var(--soft);">
+                ${unlimited ? "รีเซ็ตได้ไม่จำกัดครั้ง" : `เหลือ ${remaining} ครั้ง — สิทธิ์รีเฟรชใหม่เมื่อคีย์ถูกต่ออายุ`}
+              </span>
+              <button class="btn secondary" type="button" data-reset-device="${esc(order.key_code)}" ${disabled ? "disabled" : ""} style="min-height:34px; padding:0 14px; font-size:12px;">
+                🛰️ ปลดผูกเครื่องเดิม
+              </button>
+            </div>
+          </div>
+        `;
+      }).join("") : `<div class="empty-state">ยังไม่มีคีย์ที่ใช้งานได้ในบัญชีนี้</div>`;
     }
 
     function startKeyCountdown(expiresAtTimestamp) {
@@ -2773,7 +2960,7 @@
       showView("home");
     });
 
-    els.orderList.addEventListener("click", async (event) => {
+    els.resetHwidList.addEventListener("click", async (event) => {
       const button = event.target instanceof Element ? event.target.closest("[data-reset-device]") : null;
       if (!button || button.disabled) return;
 
@@ -2787,6 +2974,7 @@
         const data = await postJson("/api/shop/reset-device", { code });
         await refreshOrders();
         renderAccount();
+        renderResetHwid();
         window.alert(data.msg || "รีเซ็ตเครื่องแล้ว");
       } catch (error) {
         button.disabled = false;
