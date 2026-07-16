@@ -889,6 +889,70 @@ async function resetShopDevice(req, env) {
   });
 }
 
+// Discord-initiated self-reset. Ownership is proven via the discord_roles
+// binding (same table the role-claim flow writes to) instead of a website
+// session, since the bot only ever carries the service-level shop token.
+async function resetDiscordDevice(req, env) {
+  if (!isDiscordShop(req, env)) return discordShopUnauthorized();
+  const body = await readJson(req);
+  const code = cleanCode(body.code);
+  const discordUserId = cleanText(body.discord_user_id);
+  if (!code) return json({ ok: false, msg: "กรุณาใส่คีย์" }, 400);
+  if (!/^\d{17,20}$/.test(discordUserId)) {
+    return json({ ok: false, msg: "Discord identity invalid" }, 400);
+  }
+
+  const binding = await env.DB.prepare(
+    "SELECT discord_user_id FROM discord_roles WHERE code = ?",
+  ).bind(code).first();
+  if (!binding || binding.discord_user_id !== discordUserId) {
+    return json({ ok: false, msg: "ไม่พบคีย์นี้ในบัญชี Discord ของคุณ — กรุณากดรับยศด้วยคีย์นี้ก่อน" }, 404);
+  }
+
+  const key = await env.DB.prepare(
+    `SELECT code, duration_days, tier, revoked, status,
+            COALESCE(hwid_reset_count, 0) AS hwid_reset_count
+     FROM lic_keys WHERE code = ?`,
+  ).bind(code).first();
+  if (!key) return json({ ok: false, msg: "คีย์ไม่ถูกต้อง" }, 404);
+  if (key.revoked) return json({ ok: false, msg: "คีย์ถูกระงับ" }, 409);
+  if (key.status !== "delivered") return json({ ok: false, msg: "คีย์นี้ยังไม่ได้ถูกส่งจากร้าน" }, 409);
+
+  const quota = resetQuotaFor(key.tier, key.duration_days);
+  if (Number(key.hwid_reset_count || 0) >= quota) {
+    return json({ ok: false, msg: "ใช้สิทธิ์รีเซ็ตเครื่องครบแล้ว" }, 409);
+  }
+
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `DELETE FROM lic_seats
+       WHERE code = ?
+         AND EXISTS (SELECT 1 FROM lic_keys WHERE code = ? AND COALESCE(hwid_reset_count, 0) < ?)`,
+    ).bind(code, code, quota),
+    env.DB.prepare(
+      `UPDATE lic_keys SET hwid_reset_count = COALESCE(hwid_reset_count, 0) + 1
+       WHERE code = ? AND COALESCE(hwid_reset_count, 0) < ?`,
+    ).bind(code, quota),
+  ]);
+  const updateResult = results[1];
+  if (!updateResult?.meta || Number(updateResult.meta.changes || 0) !== 1) {
+    return json({ ok: false, msg: "ใช้สิทธิ์รีเซ็ตเครื่องครบแล้ว" }, 409);
+  }
+
+  const updatedKey = await env.DB.prepare(
+    "SELECT COALESCE(hwid_reset_count, 0) AS hwid_reset_count FROM lic_keys WHERE code = ?",
+  ).bind(code).first();
+  const resetCount = Math.min(quota, Number(updatedKey?.hwid_reset_count || 0));
+  const remaining = Math.max(0, quota - resetCount);
+  const unlimited = quota >= RESET_QUOTA_UNLIMITED;
+  return json({
+    ok: true,
+    code,
+    remaining: unlimited ? -1 : remaining,
+    msg: unlimited ? "รีเซ็ตเครื่องแล้ว (สิทธิ์ไม่จำกัด)" : `รีเซ็ตเครื่องแล้ว ใช้ได้อีก ${remaining} ครั้ง`,
+  });
+}
+
 async function getSlipokAccount(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const account = await getConfig(env, "slipok_account", "1");
@@ -2986,6 +3050,7 @@ export default {
     if (req.method === "GET" && url.pathname === "/api/discord-shop/plans") return discordShopPlans(req, env);
     if (req.method === "POST" && url.pathname === "/api/discord-shop/orders") return createDiscordShopOrder(req, env);
     if (req.method === "POST" && url.pathname === "/api/discord-shop/claim-role") return claimDiscordRole(req, env);
+    if (req.method === "POST" && url.pathname === "/api/discord-shop/reset-device") return resetDiscordDevice(req, env);
     if (req.method === "GET" && url.pathname === "/api/shop/plans") return shopPlans(env);
     if (req.method === "GET" && url.pathname === "/api/shop/activity") return shopActivity(env);
     if (req.method === "POST" && url.pathname === "/api/auth/register") return registerUser(req, env);
