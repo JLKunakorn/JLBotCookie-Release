@@ -1,5 +1,9 @@
 import json
+import sys
+from pathlib import Path
 from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import bot
 
@@ -23,10 +27,40 @@ def test_profile_filter_separates_ldplayer_and_mumu_ports():
 
     assert bot._serial_matches_profile("127.0.0.1:16384", "MuMu") is True
     assert bot._serial_matches_profile("127.0.0.1:16416", "MuMu") is True
+    assert bot._serial_matches_profile("127.0.0.1:7555", "MuMu") is True
     assert bot._serial_matches_profile("emulator-5554", "MuMu") is False
     assert bot._serial_slot_id("emulator-5556", "LDPlayer") == bot._serial_slot_id(
         "127.0.0.1:5557", "LDPlayer"
     )
+
+
+def test_mumu_executables_are_found_in_unknown_future_folder(monkeypatch, tmp_path):
+    install = tmp_path / "Program Files" / "Netease" / "MuMu Player 15"
+    manager = install / "nx_main" / "MuMuManager.exe"
+    adb = install / "nx_device" / "15.0" / "shell" / "adb.exe"
+    manager.parent.mkdir(parents=True)
+    adb.parent.mkdir(parents=True)
+    manager.touch()
+    adb.touch()
+
+    monkeypatch.setattr(bot, "_iter_drives", lambda: [str(tmp_path)])
+
+    assert Path(bot.find_mumu_manager()) == manager
+    assert Path(bot.find_mumu_adb()) == adb
+
+
+def test_ldplayer_executables_are_found_in_unknown_future_folder(monkeypatch, tmp_path):
+    install = tmp_path / "LDPlayer" / "LDPlayer15"
+    adb = install / "adb.exe"
+    console = install / "ldconsole.exe"
+    install.mkdir(parents=True)
+    adb.touch()
+    console.touch()
+
+    monkeypatch.setattr(bot, "_iter_drives", lambda: [str(tmp_path)])
+
+    assert Path(bot.find_ld_adb()) == adb
+    assert Path(bot.find_ld_console()) == console
 
 
 def test_list_instances_uses_adb_devices_and_deduplicates_aliases(monkeypatch):
@@ -114,6 +148,38 @@ def test_manager_ports_extend_the_adb_scan_without_replacing_it(monkeypatch):
     monkeypatch.setattr(bot, "_list_online_devices_with_adb", lambda _adb: ["127.0.0.1:7555"])
 
     assert bot.list_emu_instances("MuMu") == ["127.0.0.1:7555"]
+
+
+def test_mumu_7555_is_discovered_when_manager_is_unavailable(monkeypatch):
+    monkeypatch.setattr(bot, "adb_path_for_emu", lambda _emu: "adb.exe")
+    monkeypatch.setattr(bot, "_mumu_running_ports", lambda: None)
+    monkeypatch.setattr(bot, "_port_open", lambda _port: False)
+    monkeypatch.setattr(bot, "_list_online_devices_with_adb", lambda _adb: ["127.0.0.1:7555"])
+
+    assert bot.list_emu_instances("MuMu") == ["127.0.0.1:7555"]
+
+
+def test_empty_discovery_restarts_adb_and_retries_once(monkeypatch):
+    scans = []
+    commands = []
+
+    monkeypatch.setattr(bot, "adb_path_for_emu", lambda _emu: "adb.exe")
+
+    def fake_list(emu):
+        scans.append(emu)
+        return [] if len(scans) == 1 else ["127.0.0.1:16384"]
+
+    monkeypatch.setattr(bot, "list_emu_instances", fake_list)
+    monkeypatch.setattr(bot, "_run", lambda command, **_kwargs: commands.append(command))
+    monkeypatch.setattr(bot.time, "sleep", lambda _seconds: None)
+
+    found = bot.discover_emu_instances("MuMu")
+
+    assert scans == ["MuMu", "MuMu"]
+    assert commands == [["adb.exe", "kill-server"]]
+    assert [(item["emu"], item["serial"]) for item in found] == [
+        ("MuMu", "127.0.0.1:16384")
+    ]
 
 
 def test_combined_discovery_preserves_the_correct_adb_for_each_brand(monkeypatch):
