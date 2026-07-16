@@ -220,6 +220,15 @@ function slipOkCreds(env, account) {
 const SLIPOK_QUOTA_LIMIT = 100;
 const SLIPOK_QUOTA_RESERVE = 5;
 
+function firstFiniteNumber(values, fallback = NaN) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return fallback;
+}
+
 async function callSlipOKQuota(creds) {
   try {
     const res = await fetch(`https://api.slipok.com/api/line/apikey/${encodeURIComponent(creds.branchId)}/quota`, {
@@ -233,23 +242,45 @@ async function callSlipOKQuota(creds) {
     } catch (_) {
       data = {};
     }
-    const quotaData = data.data || {};
-    const remaining = Number(quotaData.quota);
-    const overQuota = Number(quotaData.overQuota || 0);
+    const quotaData = data && typeof data.data === "object" ? data.data : {};
+    const resultData = data && typeof data.result === "object" ? data.result : {};
+    const remaining = firstFiniteNumber([
+      quotaData.quota,
+      quotaData.remaining,
+      quotaData.remainingQuota,
+      quotaData.quotaRemaining,
+      resultData.quota,
+      resultData.remaining,
+      data.quota,
+      data.remaining,
+    ]);
+    const overQuota = firstFiniteNumber([quotaData.overQuota, resultData.overQuota, data.overQuota], 0);
+    const specialQuota = firstFiniteNumber([quotaData.specialQuota, resultData.specialQuota, data.specialQuota], 0);
+    const limit = firstFiniteNumber([
+      quotaData.limit,
+      quotaData.quotaLimit,
+      quotaData.totalQuota,
+      resultData.limit,
+      data.limit,
+    ], SLIPOK_QUOTA_LIMIT);
+    const endDate = cleanText(quotaData.endDate || resultData.endDate || data.endDate);
     if (!res.ok || data.success === false || !Number.isFinite(remaining)) {
       return {
         ok: false,
         status: res.ok ? 502 : res.status,
-        msg: String(data.message || quotaData.message || "SlipOK quota unavailable"),
+        msg: cleanText(data.message || quotaData.message || resultData.message, `SlipOK quota HTTP ${res.status}`),
       };
     }
     return {
       ok: true,
       remaining: Math.max(0, remaining),
       overQuota: Math.max(0, Number.isFinite(overQuota) ? overQuota : 0),
+      specialQuota: Math.max(0, Number.isFinite(specialQuota) ? specialQuota : 0),
+      limit: Math.max(1, Number.isFinite(limit) ? limit : SLIPOK_QUOTA_LIMIT),
+      endDate,
     };
-  } catch (_) {
-    return { ok: false, status: 502, msg: "SlipOK quota unavailable" };
+  } catch (error) {
+    return { ok: false, status: 502, msg: cleanText(error?.message, "SlipOK quota unavailable") };
   }
 }
 
@@ -845,7 +876,8 @@ async function resetShopDevice(req, env) {
 async function getSlipokAccount(req, env) {
   if (!isAdmin(req, env)) return unauthorized();
   const account = await getConfig(env, "slipok_account", "1");
-  const accounts = await Promise.all([1, 2, 3].map(async (number) => {
+  const checkedAt = Math.floor(Date.now() / 1000);
+  const settled = await Promise.allSettled([1, 2, 3].map(async (number) => {
     const creds = slipOkCreds(env, number);
     if (!creds.branchId || !creds.apiKey) {
       return {
@@ -854,6 +886,7 @@ async function getSlipokAccount(req, env) {
         configured: false,
         limit: SLIPOK_QUOTA_LIMIT,
         reserve: SLIPOK_QUOTA_RESERVE,
+        checked_at: checkedAt,
       };
     }
     const quota = await callSlipOKQuota(creds);
@@ -866,9 +899,10 @@ async function getSlipokAccount(req, env) {
         error: quota.msg,
         limit: SLIPOK_QUOTA_LIMIT,
         reserve: SLIPOK_QUOTA_RESERVE,
+        checked_at: checkedAt,
       };
     }
-    const used = Math.max(0, SLIPOK_QUOTA_LIMIT - quota.remaining + quota.overQuota);
+    const used = Math.max(0, quota.limit - quota.remaining + quota.overQuota);
     return {
       number: String(number),
       name: creds.displayName,
@@ -877,12 +911,29 @@ async function getSlipokAccount(req, env) {
       used,
       remaining: quota.remaining,
       overQuota: quota.overQuota,
-      limit: SLIPOK_QUOTA_LIMIT,
+      special_quota: quota.specialQuota,
+      end_date: quota.endDate,
+      limit: quota.limit,
       reserve: SLIPOK_QUOTA_RESERVE,
       available: quota.remaining > SLIPOK_QUOTA_RESERVE,
+      checked_at: checkedAt,
     };
   }));
-  return json({ ok: true, account, accounts, reserve: SLIPOK_QUOTA_RESERVE });
+  const accounts = settled.map((item, index) => {
+    if (item.status === "fulfilled") return item.value;
+    const creds = slipOkCreds(env, index + 1);
+    return {
+      number: String(index + 1),
+      name: creds.displayName,
+      configured: Boolean(creds.branchId && creds.apiKey),
+      ok: false,
+      error: cleanText(item.reason?.message, "อ่านโควตาไม่สำเร็จ"),
+      limit: SLIPOK_QUOTA_LIMIT,
+      reserve: SLIPOK_QUOTA_RESERVE,
+      checked_at: checkedAt,
+    };
+  });
+  return json({ ok: true, account, accounts, reserve: SLIPOK_QUOTA_RESERVE, checked_at: checkedAt });
 }
 
 async function setSlipokAccount(req, env) {
@@ -1459,6 +1510,189 @@ async function listShopOrders(req, env) {
   return json({ ok: true, orders: (rows.results || []).map((row) => shopOrderReply(row)) });
 }
 
+const BANGKOK_OFFSET_SECONDS = 7 * 60 * 60;
+
+function accountingBoundaries(now = Math.floor(Date.now() / 1000)) {
+  const today = Math.floor((now + BANGKOK_OFFSET_SECONDS) / 86400) * 86400 - BANGKOK_OFFSET_SECONDS;
+  const shifted = new Date((now + BANGKOK_OFFSET_SECONDS) * 1000);
+  const month = Math.floor(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), 1) / 1000) - BANGKOK_OFFSET_SECONDS;
+  return {
+    now,
+    today,
+    last7: today - 6 * 86400,
+    month,
+    last30: today - 29 * 86400,
+  };
+}
+
+function accountingPeriod(revenue, orders) {
+  return {
+    revenue: Number(revenue || 0),
+    orders: Number(orders || 0),
+  };
+}
+
+async function getAccounting(req, env) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const boundary = accountingBoundaries();
+  const [summary, tierResult, dailyResult] = await Promise.all([
+    env.DB.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN approved_at >= ? THEN amount ELSE 0 END), 0) AS today_revenue,
+         COALESCE(SUM(CASE WHEN approved_at >= ? THEN 1 ELSE 0 END), 0) AS today_orders,
+         COALESCE(SUM(CASE WHEN approved_at >= ? THEN amount ELSE 0 END), 0) AS seven_day_revenue,
+         COALESCE(SUM(CASE WHEN approved_at >= ? THEN 1 ELSE 0 END), 0) AS seven_day_orders,
+         COALESCE(SUM(CASE WHEN approved_at >= ? THEN amount ELSE 0 END), 0) AS month_revenue,
+         COALESCE(SUM(CASE WHEN approved_at >= ? THEN 1 ELSE 0 END), 0) AS month_orders,
+         COALESCE(SUM(amount), 0) AS total_revenue,
+         COUNT(*) AS total_orders
+       FROM shop_orders
+       WHERE status = 'delivered' AND approved_at IS NOT NULL`,
+    ).bind(boundary.today, boundary.today, boundary.last7, boundary.last7, boundary.month, boundary.month).first(),
+    env.DB.prepare(
+      `SELECT
+         CASE WHEN lic_keys.tier = 'promax' OR shop_orders.plan LIKE '%promax%' THEN 'promax' ELSE 'premium' END AS tier,
+         COALESCE(SUM(CASE WHEN shop_orders.approved_at >= ? THEN shop_orders.amount ELSE 0 END), 0) AS today_revenue,
+         COALESCE(SUM(CASE WHEN shop_orders.approved_at >= ? THEN 1 ELSE 0 END), 0) AS today_orders,
+         COALESCE(SUM(CASE WHEN shop_orders.approved_at >= ? THEN shop_orders.amount ELSE 0 END), 0) AS seven_day_revenue,
+         COALESCE(SUM(CASE WHEN shop_orders.approved_at >= ? THEN 1 ELSE 0 END), 0) AS seven_day_orders,
+         COALESCE(SUM(CASE WHEN shop_orders.approved_at >= ? THEN shop_orders.amount ELSE 0 END), 0) AS month_revenue,
+         COALESCE(SUM(CASE WHEN shop_orders.approved_at >= ? THEN 1 ELSE 0 END), 0) AS month_orders,
+         COALESCE(SUM(shop_orders.amount), 0) AS total_revenue,
+         COUNT(*) AS total_orders
+       FROM shop_orders
+       LEFT JOIN lic_keys ON lic_keys.code = shop_orders.key_code
+       WHERE shop_orders.status = 'delivered' AND shop_orders.approved_at IS NOT NULL
+       GROUP BY tier
+       ORDER BY tier`,
+    ).bind(boundary.today, boundary.today, boundary.last7, boundary.last7, boundary.month, boundary.month).all(),
+    env.DB.prepare(
+      `SELECT
+         date(approved_at + 25200, 'unixepoch') AS sale_date,
+         COALESCE(SUM(amount), 0) AS revenue,
+         COUNT(*) AS orders
+       FROM shop_orders
+       WHERE status = 'delivered' AND approved_at >= ?
+       GROUP BY sale_date
+       ORDER BY sale_date DESC`,
+    ).bind(boundary.last30).all(),
+  ]);
+
+  const row = summary || {};
+  const tiers = { premium: null, promax: null };
+  for (const item of tierResult.results || []) {
+    const tier = item.tier === "promax" ? "promax" : "premium";
+    tiers[tier] = {
+      today: accountingPeriod(item.today_revenue, item.today_orders),
+      last_7_days: accountingPeriod(item.seven_day_revenue, item.seven_day_orders),
+      current_month: accountingPeriod(item.month_revenue, item.month_orders),
+      all_time: accountingPeriod(item.total_revenue, item.total_orders),
+    };
+  }
+  for (const tier of ["premium", "promax"]) {
+    if (!tiers[tier]) {
+      tiers[tier] = {
+        today: accountingPeriod(0, 0),
+        last_7_days: accountingPeriod(0, 0),
+        current_month: accountingPeriod(0, 0),
+        all_time: accountingPeriod(0, 0),
+      };
+    }
+  }
+
+  return json({
+    ok: true,
+    timezone: "Asia/Bangkok",
+    generated_at: boundary.now,
+    periods: {
+      today: accountingPeriod(row.today_revenue, row.today_orders),
+      last_7_days: accountingPeriod(row.seven_day_revenue, row.seven_day_orders),
+      current_month: accountingPeriod(row.month_revenue, row.month_orders),
+      all_time: accountingPeriod(row.total_revenue, row.total_orders),
+    },
+    tiers,
+    daily_30_days: (dailyResult.results || []).map((item) => ({
+      date: item.sale_date,
+      revenue: Number(item.revenue || 0),
+      orders: Number(item.orders || 0),
+    })),
+  });
+}
+
+function accountingCsvCell(value) {
+  let text = String(value ?? "");
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function bangkokDateTime(epoch) {
+  const number = Number(epoch || 0);
+  if (!number) return "";
+  return new Date((number + BANGKOK_OFFSET_SECONDS) * 1000).toISOString().slice(0, 19).replace("T", " ");
+}
+
+async function exportAccountingCsv(req, env, url) {
+  if (!isAdmin(req, env)) return unauthorized();
+  const period = cleanText(url.searchParams.get("period"), "month").toLowerCase();
+  const boundary = accountingBoundaries();
+  const starts = {
+    today: boundary.today,
+    "7d": boundary.last7,
+    month: boundary.month,
+    all: 0,
+  };
+  if (!(period in starts)) return json({ ok: false, msg: "ช่วงเวลารายงานไม่ถูกต้อง" }, 400);
+  const rows = await env.DB.prepare(
+    `SELECT
+       shop_orders.id,
+       shop_orders.approved_at,
+       CASE WHEN lic_keys.tier = 'promax' OR shop_orders.plan LIKE '%promax%' THEN 'ProMax' ELSE 'Premium' END AS tier,
+       shop_orders.plan,
+       shop_orders.plan_label,
+       shop_orders.amount,
+       shop_orders.customer_ref,
+       shop_users.username,
+       payment.account AS slipok_account,
+       payment.trans_ref
+     FROM shop_orders
+     JOIN shop_users ON shop_users.id = shop_orders.user_id
+     LEFT JOIN lic_keys ON lic_keys.code = shop_orders.key_code
+     LEFT JOIN (
+       SELECT order_id, MAX(account) AS account, MAX(trans_ref) AS trans_ref
+       FROM used_trans_refs
+       GROUP BY order_id
+     ) AS payment ON payment.order_id = shop_orders.id
+     WHERE shop_orders.status = 'delivered'
+       AND shop_orders.approved_at IS NOT NULL
+       AND shop_orders.approved_at >= ?
+     ORDER BY shop_orders.approved_at DESC`,
+  ).bind(starts[period]).all();
+  const header = ["เลขออเดอร์", "วันที่อนุมัติ (Asia/Bangkok)", "รุ่น", "รหัสแพ็ก", "ชื่อแพ็ก", "รายได้ (บาท)", "ลูกค้า", "บัญชีเว็บ", "บัญชี SlipOK", "เลขอ้างอิงสลิป"];
+  const lines = [header.map(accountingCsvCell).join(",")];
+  for (const row of rows.results || []) {
+    lines.push([
+      row.id,
+      bangkokDateTime(row.approved_at),
+      row.tier,
+      row.plan,
+      row.plan_label,
+      Number(row.amount || 0),
+      row.customer_ref,
+      row.username,
+      row.slipok_account,
+      row.trans_ref,
+    ].map(accountingCsvCell).join(","));
+  }
+  return new Response(`\uFEFF${lines.join("\r\n")}`, {
+    headers: {
+      ...CORS_HEADERS,
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="jlcookie-accounting-${period}.csv"`,
+      "cache-control": "no-store",
+    },
+  });
+}
+
 async function shopOrderSlip(req, env, url) {
   if (!isAdmin(req, env)) return unauthorized();
   const id = cleanText(url.searchParams.get("order_id"));
@@ -1702,6 +1936,7 @@ function adminPage() {
       white-space: pre-wrap;
     }
     .metrics { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); gap: 10px; }
+    .accountingMetrics { grid-template-columns: repeat(4, minmax(140px, 1fr)); }
     .metric {
       background: #160e09;
       border: 1px solid var(--line);
@@ -1770,7 +2005,7 @@ function adminPage() {
     }
     @media (max-width: 900px) {
       .span4, .span6, .span8 { grid-column: span 12; }
-      .row, .row3, .toolbar, .metrics { grid-template-columns: 1fr; }
+      .row, .row3, .toolbar, .metrics, .accountingMetrics { grid-template-columns: 1fr; }
       header { align-items: stretch; flex-direction: column; }
     }
   </style>
@@ -1810,6 +2045,37 @@ function adminPage() {
           <div class="metric"><b>0</b><span>ระงับแล้ว</span></div>
           <div class="metric"><b>0</b><span>เครื่องที่ผูก</span></div>
           <div class="metric"><b>0</b><span>รอตรวจสลิป</span></div>
+        </div>
+      </section>
+
+      <section class="card span12">
+        <h2>บัญชีรายได้</h2>
+        <div class="tableMeta">
+          <strong id="accountingUpdated">กำลังรอโหลดข้อมูล</strong>
+          <button class="mini secondary" id="accountingRefreshBtn" type="button">รีเฟรชรายได้</button>
+          <span>นับเฉพาะออเดอร์ที่ส่งคีย์สำเร็จแล้ว · เวลาไทย (Asia/Bangkok)</span>
+        </div>
+        <div class="metrics accountingMetrics" id="accountingStats">
+          <div class="metric"><b>฿0</b><span>วันนี้ · 0 ออเดอร์</span></div>
+          <div class="metric"><b>฿0</b><span>7 วันล่าสุด · 0 ออเดอร์</span></div>
+          <div class="metric"><b>฿0</b><span>เดือนนี้ · 0 ออเดอร์</span></div>
+          <div class="metric"><b>฿0</b><span>รวมทั้งหมด · 0 ออเดอร์</span></div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div class="status" id="accountingPremium">Premium เดือนนี้: ฿0 · 0 ออเดอร์</div>
+          <div class="status" id="accountingPromax">ProMax เดือนนี้: ฿0 · 0 ออเดอร์</div>
+        </div>
+        <div class="buttons">
+          <button class="secondary mini" data-accounting-export="today">CSV วันนี้</button>
+          <button class="secondary mini" data-accounting-export="7d">CSV 7 วัน</button>
+          <button class="secondary mini" data-accounting-export="month">CSV เดือนนี้</button>
+          <button class="secondary mini" data-accounting-export="all">CSV ทั้งหมด</button>
+        </div>
+        <div style="overflow:auto; max-height:280px; margin-top:12px">
+          <table>
+            <thead><tr><th>วันที่</th><th>รายได้</th><th>จำนวนออเดอร์</th></tr></thead>
+            <tbody id="accountingDailyBody"><tr><td class="emptyRow" colspan="3">กำลังรอโหลดข้อมูล</td></tr></tbody>
+          </table>
         </div>
       </section>
 
@@ -2008,6 +2274,71 @@ async function api(path, options) {
   const data = await res.json();
   if (!res.ok || data.ok === false) throw new Error(data.msg || data.error || ("HTTP " + res.status));
   return data;
+}
+
+function baht(value) {
+  return "฿" + new Intl.NumberFormat("th-TH", { maximumFractionDigits: 2 }).format(Number(value || 0));
+}
+
+function accountingMetric(item, label) {
+  const value = item || { revenue: 0, orders: 0 };
+  return '<div class="metric"><b>' + esc(baht(value.revenue)) + '</b><span>' + esc(label) + ' · ' + esc(value.orders || 0) + ' ออเดอร์</span></div>';
+}
+
+function renderAccounting(data) {
+  const periods = data.periods || {};
+  $("accountingStats").innerHTML =
+    accountingMetric(periods.today, "วันนี้") +
+    accountingMetric(periods.last_7_days, "7 วันล่าสุด") +
+    accountingMetric(periods.current_month, "เดือนนี้") +
+    accountingMetric(periods.all_time, "รวมทั้งหมด");
+  const premium = data.tiers?.premium?.current_month || { revenue: 0, orders: 0 };
+  const promax = data.tiers?.promax?.current_month || { revenue: 0, orders: 0 };
+  $("accountingPremium").textContent = "Premium เดือนนี้: " + baht(premium.revenue) + " · " + premium.orders + " ออเดอร์";
+  $("accountingPromax").textContent = "ProMax เดือนนี้: " + baht(promax.revenue) + " · " + promax.orders + " ออเดอร์";
+  $("accountingUpdated").textContent = "อัปเดตล่าสุด " + fmtTime(data.generated_at);
+  const daily = data.daily_30_days || [];
+  $("accountingDailyBody").innerHTML = daily.length ? daily.map((row) =>
+    '<tr><td>' + esc(row.date) + '</td><td><b>' + esc(baht(row.revenue)) + '</b></td><td>' + esc(row.orders) + '</td></tr>'
+  ).join("") : '<tr><td class="emptyRow" colspan="3">ยังไม่มีรายได้จากออเดอร์ที่ส่งคีย์สำเร็จ</td></tr>';
+}
+
+async function loadAccounting() {
+  const button = $("accountingRefreshBtn");
+  button.disabled = true;
+  $("accountingUpdated").textContent = "กำลังโหลดข้อมูลรายได้...";
+  try {
+    const data = await api("/api/admin/accounting");
+    renderAccounting(data);
+  } catch (error) {
+    $("accountingUpdated").textContent = "โหลดข้อมูลรายได้ไม่สำเร็จ: " + error.message;
+    throw error;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function downloadAccounting(period) {
+  const res = await fetch("/api/admin/accounting.csv?period=" + encodeURIComponent(period), {
+    headers: { "x-admin-token": token() },
+  });
+  if (!res.ok) {
+    let message = "HTTP " + res.status;
+    try {
+      const data = await res.json();
+      message = data.msg || data.error || message;
+    } catch (_) {}
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = "jlcookie-accounting-" + period + ".csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(href);
 }
 
 function durationLabel(days) {
@@ -2293,14 +2624,39 @@ async function postJson(path, body) {
 
 $("saveTokenBtn").onclick = async () => {
   sessionStorage.setItem("jl_admin_token", token());
-  await refresh().catch((e) => setStatus(e.message, false));
+  await Promise.allSettled([
+    refresh(),
+    loadSlipokAccount(),
+    loadAccounting(),
+  ]).then((results) => {
+    const failed = results.find((item) => item.status === "rejected");
+    if (failed) setStatus(failed.reason?.message || "โหลดข้อมูลบางส่วนไม่สำเร็จ", false);
+  });
 };
 $("clearTokenBtn").onclick = () => {
   sessionStorage.removeItem("jl_admin_token");
   $("adminToken").value = "";
   setStatus("ล้าง Token แล้ว", true);
 };
-$("refreshBtn").onclick = () => refresh().catch((e) => setStatus(e.message, false));
+$("refreshBtn").onclick = () => Promise.allSettled([refresh(), loadSlipokAccount(), loadAccounting()]).then((results) => {
+  const failed = results.find((item) => item.status === "rejected");
+  if (failed) setStatus(failed.reason?.message || "โหลดข้อมูลบางส่วนไม่สำเร็จ", false);
+});
+$("accountingRefreshBtn").onclick = () => loadAccounting().catch((e) => setStatus(e.message, false));
+document.querySelectorAll("[data-accounting-export]").forEach((button) => {
+  button.onclick = async () => {
+    const period = button.getAttribute("data-accounting-export");
+    button.disabled = true;
+    try {
+      await downloadAccounting(period);
+      setStatus("ดาวน์โหลดรายงานบัญชี CSV แล้ว", true);
+    } catch (error) {
+      setStatus("ดาวน์โหลดรายงานไม่สำเร็จ: " + error.message, false);
+    } finally {
+      button.disabled = false;
+    }
+  };
+});
 $("keySearch").oninput = renderKeys;
 $("statusFilter").onchange = renderKeys;
 $("planFilter").onchange = renderKeys;
@@ -2486,10 +2842,13 @@ function renderSlipokQuotas(accounts) {
     if (!item.configured) {
       value.textContent = "ยังไม่ได้ตั้งค่า API";
     } else if (!item.ok) {
-      value.textContent = "อ่านโควตาไม่สำเร็จ";
+      value.textContent = "อ่านโควตาไม่สำเร็จ: " + (item.error || "ไม่ทราบสาเหตุ");
       value.style.color = "#ff8a8a";
     } else {
-      value.textContent = item.used + "/" + item.limit + " (เหลือ " + item.remaining + ")" + (item.available ? "" : " • หยุดใช้");
+      value.textContent = item.used + "/" + item.limit + " (เหลือ " + item.remaining + ")" +
+        (item.special_quota ? " · โควตาพิเศษ " + item.special_quota : "") +
+        (item.end_date ? " · หมดรอบ " + item.end_date : "") +
+        (item.available ? "" : " • หยุดใช้");
       value.style.color = item.available ? "#7ee787" : "#ff8a8a";
     }
     card.appendChild(title);
@@ -2499,20 +2858,32 @@ function renderSlipokQuotas(accounts) {
 }
 
 async function loadSlipokAccount() {
+  const button = $("slipokRefreshBtn");
+  button.disabled = true;
+  $("slipokStatus").textContent = "กำลังตรวจโควตา SlipOK ทั้ง 3 บัญชี...";
+  $("slipokQuotaStatus").textContent = "กำลังโหลด...";
   try {
     const data = await api("/api/admin/slipok-account");
     if (data && data.account) {
       $("slipokAccount").value = data.account;
       const label = slipokAccountLabel(data.account);
       $("slipokStatus").textContent = "กำลังใช้: " + label;
+      $("slipokStatus").style.color = "var(--muted)";
       renderSlipokQuotas(data.accounts);
     }
-  } catch (_) {
-    // สถานะ API หลักจะแสดงข้อผิดพลาดให้ผู้ดูแลอยู่แล้ว
+    return data;
+  } catch (error) {
+    const message = "โหลดโควตา SlipOK ไม่สำเร็จ: " + error.message;
+    $("slipokStatus").textContent = message;
+    $("slipokStatus").style.color = "var(--berry)";
+    $("slipokQuotaStatus").textContent = message;
+    throw error;
+  } finally {
+    button.disabled = false;
   }
 }
 
-$("slipokRefreshBtn").onclick = () => loadSlipokAccount();
+$("slipokRefreshBtn").onclick = () => loadSlipokAccount().catch((e) => setStatus(e.message, false));
 
 $("slipokSaveBtn").onclick = async () => {
   const account = $("slipokAccount").value;
@@ -2521,12 +2892,13 @@ $("slipokSaveBtn").onclick = async () => {
   const label = slipokAccountLabel(account);
   $("slipokStatus").textContent = "กำลังใช้: " + label;
   setStatus("เปลี่ยนบัญชี SlipOK แล้ว: " + label, true);
-  loadSlipokAccount();
+  loadSlipokAccount().catch((e) => setStatus(e.message, false));
 };
 
 if (adminToken) {
   refresh().catch((e) => setStatus(e.message, false));
-  loadSlipokAccount();
+  loadSlipokAccount().catch((e) => setStatus(e.message, false));
+  loadAccounting().catch((e) => setStatus(e.message, false));
 }
 </script>
 </body>
@@ -2573,6 +2945,8 @@ export default {
     if (req.method === "GET" && url.pathname === "/api/admin/keys") return listKeys(req, env);
     if (req.method === "GET" && url.pathname === "/api/admin/slipok-account") return getSlipokAccount(req, env);
     if (req.method === "POST" && url.pathname === "/api/admin/slipok-account") return setSlipokAccount(req, env);
+    if (req.method === "GET" && url.pathname === "/api/admin/accounting") return getAccounting(req, env);
+    if (req.method === "GET" && url.pathname === "/api/admin/accounting.csv") return exportAccountingCsv(req, env, url);
     if (req.method === "GET" && url.pathname === "/api/admin/shop-orders") return listShopOrders(req, env);
     if (req.method === "GET" && url.pathname === "/api/admin/shop-order-slip") return shopOrderSlip(req, env, url);
     if (req.method === "POST" && url.pathname === "/api/admin/shop-orders/approve") return approveShopOrder(req, env);

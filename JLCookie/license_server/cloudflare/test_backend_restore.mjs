@@ -18,6 +18,8 @@ assert(adminHtml.includes('id="toggleOrdersBtn"'), "order hide/show button missi
 assert(adminHtml.includes('id="ordersPanel" style="overflow:auto; display:none"'), "orders must be hidden by default");
 assert(adminHtml.includes('id="slipokAccount"'), "SlipOK account selector missing");
 assert(adminHtml.includes('id="slipokQuotaStatus"'), "SlipOK quota cards missing");
+assert(adminHtml.includes('id="accountingStats"'), "accounting summary missing");
+assert(adminHtml.includes('data-accounting-export="month"'), "accounting CSV controls missing");
 
 const fakeDb = {
   prepare(sql) {
@@ -25,8 +27,35 @@ const fakeDb = {
     return {
       bind(...args) {
         return {
-          first: async () => query.includes("from app_config") ? { value: "auto" } : null,
-          all: async () => ({ results: [] }),
+          first: async () => {
+            if (query.includes("from app_config")) return { value: "auto" };
+            if (query.includes("sum(case when approved_at")) {
+              return {
+                today_revenue: 35,
+                today_orders: 1,
+                seven_day_revenue: 184,
+                seven_day_orders: 2,
+                month_revenue: 783,
+                month_orders: 3,
+                total_revenue: 1782,
+                total_orders: 4,
+              };
+            }
+            return null;
+          },
+          all: async () => {
+            if (query.includes("group by tier")) {
+              return { results: [
+                { tier: "premium", today_revenue: 35, today_orders: 1, seven_day_revenue: 35, seven_day_orders: 1, month_revenue: 634, month_orders: 2, total_revenue: 634, total_orders: 2 },
+                { tier: "promax", today_revenue: 0, today_orders: 0, seven_day_revenue: 149, seven_day_orders: 1, month_revenue: 149, month_orders: 1, total_revenue: 1148, total_orders: 2 },
+              ] };
+            }
+            if (query.includes("group by sale_date")) return { results: [{ sale_date: "2026-07-16", revenue: 35, orders: 1 }] };
+            if (query.includes("payment.trans_ref")) {
+              return { results: [{ id: "ORDER-1", approved_at: 1784156400, tier: "Premium", plan: "3d", plan_label: "Premium 3 วัน", amount: 35, customer_ref: "tester", username: "tester", slipok_account: "3", trans_ref: "TRANS-1" }] };
+            }
+            return { results: [] };
+          },
           run: async () => ({ meta: { changes: 1 } }),
         };
       },
@@ -51,8 +80,10 @@ const env = {
 
 globalThis.fetch = async (url) => {
   const branch = /apikey\/(branch-\d)/.exec(String(url))?.[1];
-  const remaining = { "branch-1": 5, "branch-2": 19, "branch-3": 100 }[branch];
-  return Response.json({ success: true, data: { quota: remaining, overQuota: 0 } });
+  if (branch === "branch-1") return Response.json({ success: true, data: { quota: 5, overQuota: 0 } });
+  if (branch === "branch-2") return Response.json({ success: true, quota: 19, overQuota: 0 });
+  if (branch === "branch-3") return Response.json({ success: true, result: { remaining: 100, specialQuota: 4, endDate: "2026-08-16" } });
+  return Response.json({ success: false, message: "unknown branch" }, { status: 404 });
 };
 
 const slipResponse = await worker.fetch(
@@ -67,6 +98,43 @@ assert(slip.accounts?.length === 3, "SlipOK must report all three accounts");
 assert(slip.accounts[0].used === 95 && slip.accounts[0].available === false, "JL reserve rule mismatch");
 assert(slip.accounts[1].used === 81 && slip.accounts[1].available === true, "Fxng quota mismatch");
 assert(slip.accounts[2].used === 0 && slip.accounts[2].available === true, "Xiaomi quota mismatch");
+assert(slip.accounts[2].special_quota === 4 && slip.accounts[2].end_date === "2026-08-16", "SlipOK alternate quota shape mismatch");
+
+globalThis.fetch = async (url) => {
+  const branch = /apikey\/(branch-\d)/.exec(String(url))?.[1];
+  if (branch === "branch-2") return Response.json({ success: false, message: "account unavailable" }, { status: 503 });
+  return Response.json({ success: true, data: { quota: branch === "branch-1" ? 5 : 100, overQuota: 0 } });
+};
+const partialSlipResponse = await worker.fetch(
+  new Request("https://example.test/api/admin/slipok-account", {
+    headers: { "x-admin-token": env.ADMIN_TOKEN },
+  }),
+  env,
+);
+const partialSlip = await partialSlipResponse.json();
+assert(partialSlip.accounts?.length === 3, "one failed SlipOK account must not hide the other accounts");
+assert(partialSlip.accounts[0].ok === true && partialSlip.accounts[1].ok === false && partialSlip.accounts[2].ok === true, "SlipOK partial failure isolation mismatch");
+
+const accountingResponse = await worker.fetch(
+  new Request("https://example.test/api/admin/accounting", {
+    headers: { "x-admin-token": env.ADMIN_TOKEN },
+  }),
+  env,
+);
+const accounting = await accountingResponse.json();
+assert(accountingResponse.status === 200, "accounting API must be available to admin");
+assert(accounting.periods?.today?.revenue === 35 && accounting.periods?.current_month?.revenue === 783, "accounting summary mismatch");
+assert(accounting.tiers?.promax?.current_month?.revenue === 149, "accounting tier split mismatch");
+assert(accounting.daily_30_days?.[0]?.date === "2026-07-16", "accounting daily breakdown mismatch");
+
+const accountingCsvResponse = await worker.fetch(
+  new Request("https://example.test/api/admin/accounting.csv?period=month", {
+    headers: { "x-admin-token": env.ADMIN_TOKEN },
+  }),
+  env,
+);
+const accountingCsv = await accountingCsvResponse.text();
+assert(accountingCsvResponse.status === 200 && accountingCsv.includes("ORDER-1") && accountingCsv.includes("TRANS-1"), "accounting CSV export mismatch");
 
 const resetUnauthorized = await worker.fetch(
   new Request("https://example.test/api/shop/reset-device", {
