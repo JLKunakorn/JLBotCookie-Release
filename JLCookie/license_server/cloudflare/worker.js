@@ -530,7 +530,13 @@ function shopOrderReply(row, includeSlip = false) {
     has_slip: Boolean(row.slip_b64),
     key_code: row.key_code,
     key_duration_days: row.key_duration_days,
+    key_tier: row.key_tier,
     hwid_reset_count: Number(row.hwid_reset_count || 0),
+    hwid_reset_quota: row.key_code
+      ? (resetQuotaFor(row.key_tier, row.key_duration_days) >= RESET_QUOTA_UNLIMITED
+        ? -1
+        : resetQuotaFor(row.key_tier, row.key_duration_days))
+      : null,
     created_at: row.created_at,
     approved_at: row.approved_at,
     rejected_at: row.rejected_at,
@@ -779,7 +785,7 @@ async function extendKey(req, env) {
   if (![6, 24].includes(hours)) return json({ ok: false, msg: "ระยะเวลาไม่ถูกต้อง" }, 400);
   const seconds = hours * 3600;
   const result = await env.DB.prepare(
-    "UPDATE lic_keys SET expires_at = expires_at + ? WHERE code = ? AND duration_days != 0 AND expires_at IS NOT NULL"
+    "UPDATE lic_keys SET expires_at = expires_at + ?, hwid_reset_count = 0 WHERE code = ? AND duration_days != 0 AND expires_at IS NOT NULL"
   ).bind(seconds, code).run();
   if (!result.meta || result.meta.changes === 0) {
     return json({ ok: false, msg: "คีย์นี้ยังไม่เปิดใช้งาน (ไม่มีวันหมดอายุให้ต่อ)" }, 400);
@@ -796,6 +802,16 @@ async function resetSeats(req, env) {
   return json({ ok: true, code });
 }
 
+// Reset-quota ceiling per package tier. Lifetime packages (duration_days===0)
+// get unlimited resets regardless of tier — checked before the tier lookup.
+const RESET_QUOTA_BY_TIER = { premium: 2, promax: 5 };
+const RESET_QUOTA_UNLIMITED = 999999;
+
+function resetQuotaFor(tier, durationDays) {
+  if (isLifetimeDuration(durationDays)) return RESET_QUOTA_UNLIMITED;
+  return RESET_QUOTA_BY_TIER[resolveTier(tier)] ?? RESET_QUOTA_BY_TIER.premium;
+}
+
 async function resetShopDevice(req, env) {
   const user = await requireUser(req, env);
   if (!user) return authRequired();
@@ -804,7 +820,7 @@ async function resetShopDevice(req, env) {
   if (!code) return json({ ok: false, msg: "กรุณาใส่คีย์" }, 400);
 
   const key = await env.DB.prepare(
-    `SELECT lic_keys.code, lic_keys.duration_days,
+    `SELECT lic_keys.code, lic_keys.duration_days, lic_keys.tier,
             COALESCE(lic_keys.hwid_reset_count, 0) AS hwid_reset_count
      FROM lic_keys
      WHERE lic_keys.code = ?
@@ -817,10 +833,9 @@ async function resetShopDevice(req, env) {
        )`,
   ).bind(code, user.id).first();
   if (!key) return json({ ok: false, msg: "ไม่พบคีย์นี้ในบัญชีของคุณ" }, 404);
-  if (![0, 30].includes(Number(key.duration_days))) {
-    return json({ ok: false, msg: "แพ็กเกจนี้ไม่รองรับการรีเซ็ตเครื่อง" }, 400);
-  }
-  if (Number(key.hwid_reset_count || 0) >= 2) {
+
+  const quota = resetQuotaFor(key.tier, key.duration_days);
+  if (Number(key.hwid_reset_count || 0) >= quota) {
     return json({ ok: false, msg: "ใช้สิทธิ์รีเซ็ตเครื่องครบแล้ว" }, 409);
   }
 
@@ -840,19 +855,17 @@ async function resetShopDevice(req, env) {
            SELECT 1
            FROM lic_keys
            WHERE lic_keys.code = ?
-             AND lic_keys.duration_days IN (0, 30)
-             AND COALESCE(lic_keys.hwid_reset_count, 0) < 2
+             AND COALESCE(lic_keys.hwid_reset_count, 0) < ?
              AND ${ownershipGuard}
          )`,
-    ).bind(code, code, user.id),
+    ).bind(code, code, quota, user.id),
     env.DB.prepare(
       `UPDATE lic_keys
        SET hwid_reset_count = COALESCE(hwid_reset_count, 0) + 1
        WHERE code = ?
-         AND duration_days IN (0, 30)
-         AND COALESCE(hwid_reset_count, 0) < 2
+         AND COALESCE(hwid_reset_count, 0) < ?
          AND ${ownershipGuard}`,
-    ).bind(code, user.id),
+    ).bind(code, quota, user.id),
   ]);
   const updateResult = results[1];
   if (!updateResult?.meta || Number(updateResult.meta.changes || 0) !== 1) {
@@ -862,14 +875,17 @@ async function resetShopDevice(req, env) {
   const updatedKey = await env.DB.prepare(
     "SELECT COALESCE(hwid_reset_count, 0) AS hwid_reset_count FROM lic_keys WHERE code = ?",
   ).bind(code).first();
-  const resetCount = Math.min(2, Number(updatedKey?.hwid_reset_count || 0));
-  const remaining = Math.max(0, 2 - resetCount);
+  const resetCount = Math.min(quota, Number(updatedKey?.hwid_reset_count || 0));
+  const remaining = Math.max(0, quota - resetCount);
   return json({
     ok: true,
     code,
     hwid_reset_count: resetCount,
-    remaining,
-    msg: `รีเซ็ตเครื่องแล้ว ใช้ได้อีก ${remaining} ครั้ง`,
+    quota: quota >= RESET_QUOTA_UNLIMITED ? -1 : quota,
+    remaining: quota >= RESET_QUOTA_UNLIMITED ? -1 : remaining,
+    msg: quota >= RESET_QUOTA_UNLIMITED
+      ? "รีเซ็ตเครื่องแล้ว (สิทธิ์ไม่จำกัด)"
+      : `รีเซ็ตเครื่องแล้ว ใช้ได้อีก ${remaining} ครั้ง`,
   });
 }
 
@@ -1475,6 +1491,7 @@ async function myOrders(req, env) {
   const rows = await env.DB.prepare(
     `SELECT shop_orders.*, shop_users.username,
             lic_keys.duration_days AS key_duration_days,
+            lic_keys.tier AS key_tier,
             COALESCE(lic_keys.hwid_reset_count, 0) AS hwid_reset_count
      FROM shop_orders
      JOIN shop_users ON shop_users.id = shop_orders.user_id
