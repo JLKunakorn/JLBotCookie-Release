@@ -68,7 +68,15 @@ def test_manager_starts_two_isolated_screens_and_keys_are_not_in_argv():
         "127.0.0.1:16384",
         "JL-KEY-ONE",
         "adb.exe",
-        {"use_jump": False, "run_mode": "slide", "slide_delay_min": 0.4, "slide_delay_max": 0.8},
+        {
+            "use_jump": False,
+            "run_mode": "slide",
+            "slide_delay_min": 0.4,
+            "slide_delay_max": 0.8,
+            "loop_rest_enabled": True,
+            "loop_rest_every": 20,
+            "loop_rest_minutes": 10.0,
+        },
     )
     manager.start(
         "127.0.0.1:16416",
@@ -86,6 +94,9 @@ def test_manager_starts_two_isolated_screens_and_keys_are_not_in_argv():
     assert first_config["serial"] != second_config["serial"]
     assert first_config["settings"]["run_mode"] == "slide"
     assert first_config["settings"]["slide_delay_min"] == 0.4
+    assert first_config["settings"]["loop_rest_enabled"] is True
+    assert first_config["settings"]["loop_rest_every"] == 20
+    assert first_config["settings"]["loop_rest_minutes"] == 10.0
     assert second_config["settings"]["run_mode"] == "none"
 
     assert manager.stop("127.0.0.1:16384", force_after=0) is True

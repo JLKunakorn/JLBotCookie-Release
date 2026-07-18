@@ -1,4 +1,4 @@
-# JLmain V2.0.1 Premium - Build EXE
+# JLmain V2.0.4 Premium - Build EXE
 
 โฟลเดอร์นี้เป็นชุด staging สำหรับ build exe ลูกค้าเท่านั้น
 
@@ -11,8 +11,8 @@ powershell -ExecutionPolicy Bypass -File .\build_release.ps1
 ไฟล์ผลลัพธ์จะอยู่ที่:
 
 ```text
-dist\JLmain_V2.0.1_Premium.exe
-dist\JLmain_V2.0.1_Premium.zip
+dist\JLmain_V2.0.4_Premium.exe
+dist\JLmain_V2.0.4_Premium.zip
 ```
 
 ## ข้อสำคัญ

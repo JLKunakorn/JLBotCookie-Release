@@ -111,7 +111,14 @@ def run_worker(config: dict) -> int:
     def on_loop_done(loops_done):
         _emit("loop", loops_done=loops_done, max_loops=max_loops)
 
-    bot.run_state_machine(max_loops=max_loops, on_loop_done=on_loop_done)
+    def on_rest_progress(**payload):
+        _emit("rest", **payload)
+
+    bot.run_state_machine(
+        max_loops=max_loops,
+        on_loop_done=on_loop_done,
+        on_rest_progress=on_rest_progress,
+    )
     return 0
 
 

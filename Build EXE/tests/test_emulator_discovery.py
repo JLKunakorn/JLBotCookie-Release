@@ -243,3 +243,31 @@ def test_combined_discovery_does_not_show_mumu_alias_as_ldplayer(monkeypatch):
     assert [(item["emu"], item["serial"]) for item in found] == [
         ("MuMu", "127.0.0.1:16448")
     ]
+
+
+def test_check_connection_retries_before_giving_up(monkeypatch):
+    monkeypatch.setattr(bot, "ADB_DEVICE", "127.0.0.1:16480")
+    monkeypatch.setattr(bot, "ADB_PATH", "adb.exe")
+    monkeypatch.setattr(bot, "_run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bot.time, "sleep", lambda _seconds: None)
+
+    attempts = []
+
+    def fake_screencap(*_args, **_kwargs):
+        attempts.append(1)
+        return None if len(attempts) < 3 else object()
+
+    monkeypatch.setattr(bot, "adb_screencap", fake_screencap)
+
+    assert bot.check_connection() is True
+    assert len(attempts) == 3
+
+
+def test_check_connection_gives_up_after_exhausting_retries(monkeypatch):
+    monkeypatch.setattr(bot, "ADB_DEVICE", "127.0.0.1:16480")
+    monkeypatch.setattr(bot, "ADB_PATH", "adb.exe")
+    monkeypatch.setattr(bot, "_run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bot.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(bot, "adb_screencap", lambda *_args, **_kwargs: None)
+
+    assert bot.check_connection(attempts=2) is False
