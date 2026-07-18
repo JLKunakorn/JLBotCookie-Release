@@ -11,6 +11,7 @@ import random
 import threading
 import datetime
 import json
+import math
 import socket
 import traceback
 from pathlib import Path
@@ -688,6 +689,9 @@ SETTINGS = {
     'use_faststart': False,
     'use_relic': True,
     'use_mail_lives': False,
+    'loop_rest_enabled': False,
+    'loop_rest_every': 20,
+    'loop_rest_minutes': 10.0,
     'treasure_extract_count': 12,
 }
 
@@ -1731,6 +1735,68 @@ def _lobby_side_tasks(screen):
         side_task_adb.unregister_device_stop_event(serial, STOP_FLAG)
     return acted
 
+
+def loop_rest_due(settings, loops_done):
+    settings = settings if isinstance(settings, dict) else {}
+    try:
+        every = int(settings.get('loop_rest_every', 0) or 0)
+        minutes = float(settings.get('loop_rest_minutes', 0.0) or 0.0)
+        loops_done = int(loops_done or 0)
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        settings.get('loop_rest_enabled', False)
+        and every > 0
+        and minutes > 0.0
+        and loops_done > 0
+        and loops_done % every == 0
+    )
+
+
+def _rest_time_text(seconds):
+    seconds = max(0, int(seconds or 0))
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f'{hours:02d}:{minutes:02d}:{seconds:02d}' if hours else f'{minutes:02d}:{seconds:02d}'
+
+
+def _emit_rest_progress(callback, loops_done, remaining_seconds, total_seconds, active):
+    if callback is None:
+        return
+    payload = {
+        'loops_done': int(loops_done or 0),
+        'remaining_seconds': max(0, int(remaining_seconds or 0)),
+        'total_seconds': max(0, int(total_seconds or 0)),
+        'active': bool(active),
+    }
+    try:
+        callback(**payload)
+    except TypeError:
+        callback(payload)
+
+
+def wait_for_scheduled_lobby_rest(loops_done, on_rest_progress=None):
+    if not loop_rest_due(SETTINGS, loops_done):
+        return True
+    total_seconds = max(1, int(round(float(SETTINGS.get('loop_rest_minutes', 0.0)) * 60.0)))
+    deadline = time.monotonic() + total_seconds
+    last_remaining = None
+    print(f'[พักบอท] เริ่มพักที่ Lobby หลังจบรอบ {loops_done} เป็นเวลา {_rest_time_text(total_seconds)}')
+    while not STOP_FLAG.is_set():
+        remaining = max(0, int(math.ceil(deadline - time.monotonic())))
+        if remaining <= 0:
+            _emit_rest_progress(on_rest_progress, loops_done, 0, total_seconds, False)
+            print('[พักบอท] ครบเวลาพัก -> เริ่มรอบถัดไป')
+            return True
+        if remaining != last_remaining:
+            _emit_rest_progress(on_rest_progress, loops_done, remaining, total_seconds, True)
+            last_remaining = remaining
+        if STOP_FLAG.wait(min(1.0, remaining)):
+            break
+    _emit_rest_progress(on_rest_progress, loops_done, 0, total_seconds, False)
+    print('[พักบอท] ยกเลิกการพักเพราะได้รับคำสั่งหยุด')
+    return False
+
 def _escape_to_lobby(max_tries=8):
     for _ in range(max_tries):
         if STOP_FLAG.is_set():
@@ -1768,9 +1834,10 @@ def dismiss_unknown_popup(screen, allow_fallback=False):
         return True
     return False
 
-def ensure_on_boost_screen(max_tries=15):
+def ensure_on_boost_screen(max_tries=15, rest_after_lobby=False, rest_loops_done=0, on_rest_progress=None):
     x_close_tries = 0
     side_budget = 1
+    rest_budget = 1 if rest_after_lobby else 0
     for i in range(max_tries):
         if STOP_FLAG.is_set():
             return False
@@ -1843,8 +1910,17 @@ def ensure_on_boost_screen(max_tries=15):
                 human_sleep(2.5)
             else:
                 if lf:
-                    if side_budget > 0 and _lobby_side_tasks(screen):
+                    if side_budget > 0:
+                        side_acted = _lobby_side_tasks(screen)
                         side_budget -= 1
+                        if side_acted:
+                            continue
+                    if rest_budget > 0:
+                        rest_budget -= 1
+                        if not wait_for_scheduled_lobby_rest(rest_loops_done, on_rest_progress=on_rest_progress):
+                            return False
+                        # Re-capture after a potentially long rest and only tap
+                        # PLAY if the account is still on a ready Lobby screen.
                         continue
                     print(f'[ระบบนำทาง] หน้าจอหลักเรียบร้อยดี (ครั้งที่ {i + 1}) -> กดเริ่มเกมเพื่อเข้าหน้าเตรียมวิ่ง')
                     adb_tap(*lp)
@@ -1918,9 +1994,15 @@ def multibuy_until_target():
 
 # --- STATE MACHINE CONTROLS ---
 
-def state_reroll():
+def state_reroll(rest_after_lobby=False, rest_loops_done=0, on_rest_progress=None):
     print('\n===== [STATE 1] REROLL — Multi-Buy สุ่มบูสต์ที่เลือก =====')
-    if not ensure_on_boost_screen():
+    if not ensure_on_boost_screen(
+        rest_after_lobby=rest_after_lobby,
+        rest_loops_done=rest_loops_done,
+        on_rest_progress=on_rest_progress,
+    ):
+        if STOP_FLAG.is_set():
+            return None
         print('[WARN] นำทางยังไม่สำเร็จ -> รอแล้ววนลองใหม่ (ไม่หยุดบอท)')
         human_sleep(3.0)
         return State.REROLL
@@ -2159,31 +2241,52 @@ def state_result():
         time.sleep(LOOP_SLEEP)
     return None
 
-def check_connection():
-    if ADB_DEVICE:
-        if ':' in str(ADB_DEVICE):
-            try:
-                _run([ADB_PATH, 'connect', str(ADB_DEVICE)], timeout=4)
-            except Exception:
-                pass
-    else:
-        auto_connect_emulators()
-        auto_select_device()
-    return adb_screencap() is not None
+def check_connection(attempts=3, retry_delay=2.0):
+    """Retry connect+screencap a few times before giving up.
 
-def run_state_machine(max_loops=0, on_loop_done=None):
+    A single transient hiccup (device still waking up right after a fresh
+    refresh) used to hard-fail the whole worker with no second try.
+    """
+    for attempt in range(1, max(1, attempts) + 1):
+        if ADB_DEVICE:
+            if ':' in str(ADB_DEVICE):
+                try:
+                    _run([ADB_PATH, 'connect', str(ADB_DEVICE)], timeout=4)
+                except Exception:
+                    pass
+        else:
+            auto_connect_emulators()
+            auto_select_device()
+        if adb_screencap() is not None:
+            return True
+        if attempt < attempts:
+            print(f'[adb] เชื่อมต่อ/แคปจอไม่สำเร็จ (รอบ {attempt}/{attempts}) กำลังลองใหม่...')
+            time.sleep(retry_delay)
+    return False
+
+def run_state_machine(max_loops=0, on_loop_done=None, on_rest_progress=None):
     global COIN_TOTAL
     _require_runtime_license()
     COIN_TOTAL = 0
     current_state = State.REROLL
     loops_done = 0
+    pending_rest = False
+    pending_rest_loops = 0
     err_streak = 0
     try:
         while not STOP_FLAG.is_set():
             prev = current_state
             try:
                 if current_state == State.REROLL:
-                    current_state = state_reroll()
+                    requested_rest = pending_rest
+                    current_state = state_reroll(
+                        rest_after_lobby=requested_rest,
+                        rest_loops_done=pending_rest_loops,
+                        on_rest_progress=on_rest_progress,
+                    )
+                    if requested_rest and current_state == State.RUN:
+                        pending_rest = False
+                        pending_rest_loops = 0
                 elif current_state == State.RUN:
                     current_state = state_run()
                 elif current_state == State.RESULT:
@@ -2214,6 +2317,9 @@ def run_state_machine(max_loops=0, on_loop_done=None):
                 if max_loops and loops_done >= max_loops:
                     print(f'[loop] ครบ {max_loops} รอบแล้ว -> หยุดบอท')
                     break
+                if loop_rest_due(SETTINGS, loops_done):
+                    pending_rest = True
+                    pending_rest_loops = loops_done
             if current_state is None:
                 break
     except KeyboardInterrupt:

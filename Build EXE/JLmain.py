@@ -20,7 +20,7 @@ import screen_license_store
 
 
 APP_NAME = "JLmain"
-APP_DISPLAY_VERSION = "V2.0.3 Premium"
+APP_DISPLAY_VERSION = "V2.0.4 Premium"
 license_core.CLIENT_VERSION = APP_DISPLAY_VERSION
 RELEASE_MODE = bool(getattr(sys, "frozen", False))
 
@@ -116,6 +116,13 @@ class JLMainApp:
         self._geometry_busy_until = 0.0
         self.screen_rows = {}
         self.screen_serials = []
+        self.claim_screen_serial = ""
+        self.claim_screen_popup = None
+        self.claim_screen_choice_frame = None
+        self.claim_screen_popup_status_var = None
+        self.claim_screen_refresh_btn = None
+        self._claim_screen_pending_action = None
+        self._instances_refreshing = False
         self.extra_screen_keys = screen_license_store.load_keys()
         self.notification_config = notification_settings.load_settings()
         self.notifier = premium_notifier.PremiumNotifier(self.notification_config)
@@ -237,6 +244,7 @@ class JLMainApp:
             segmented_button_unselected_hover_color=LINE,
             text_color=TEXT,
             corner_radius=14,
+            command=self._on_tab_change,
         )
         self.tabs.pack(fill="both", expand=True, padx=18, pady=(0, 18))
         self.control_parent = self.tabs.add("Auto farm")
@@ -266,6 +274,13 @@ class JLMainApp:
         if self.license_enabled:
             self.root.after(350, self._check_license_on_start)
             self.root.after(1000, self._tick_license_countdown)
+
+    def _on_tab_change(self):
+        if self.tabs.get() != "Claim item":
+            return
+        if self._claim_task_running():
+            return
+        self.root.after(50, self._show_claim_screen_popup)
 
     def _build_license_card(self):
         if not self.license_enabled:
@@ -1405,7 +1420,305 @@ del "%~f0"
         else:
             self.mail_limit_frame.grid_remove()
 
+    def _claim_task_running(self):
+        return any(
+            bool(getattr(self, name, False))
+            for name in ("gift_running", "hearts_running", "tr_extract_running")
+        )
+
+    def _claim_screen_title(self, serial):
+        serial = str(serial or "").strip()
+        if not serial:
+            return "ยังไม่ได้เลือกจอ"
+        try:
+            index = self.screen_serials.index(serial) + 1
+        except ValueError:
+            index = 0
+        meta = self.instance_meta.get(serial, {})
+        friendly = str(meta.get("label") or bot._label_for_serial(serial, meta.get("emu") or "Emulator"))
+        prefix = f"เครื่อง {index}  •  " if index else ""
+        return f"{prefix}{friendly}"
+
+    def _set_claim_screen(self, serial, write_log=True):
+        serial = str(serial or "").strip()
+        if not serial or serial not in self.screen_serials:
+            return False
+        if self.multi_farm.is_running(serial):
+            if write_log:
+                self._log(f"[Claim item] {self._claim_screen_title(serial)} กำลังใช้ AutoFarm อยู่ กรุณาเลือกจออื่น\n")
+            return False
+        meta = self.instance_meta.get(serial, {})
+        adb_path = str(meta.get("adb_path") or self.adb_var.get()).strip()
+        self.claim_screen_serial = serial
+        self.dev_var.set(serial)
+        bot.ADB_DEVICE = serial
+        if adb_path:
+            self.adb_var.set(adb_path)
+            bot.ADB_PATH = adb_path
+        for label, value in self.inst_serials.items():
+            if value == serial:
+                self.inst_var.set(label)
+                break
+        title = self._claim_screen_title(serial)
+        self.claim_screen_var.set(f"จอที่เลือก: {title}")
+        self.claim_screen_status_lbl.configure(text_color=MINT)
+        if write_log:
+            self._log(f"[Claim item] เลือกใช้งาน {title}\n")
+        return True
+
+    def _clear_claim_screen(self):
+        self.claim_screen_serial = ""
+        if hasattr(self, "claim_screen_var"):
+            self.claim_screen_var.set("ยังไม่ได้เลือกจอสำหรับ Claim item")
+        if hasattr(self, "claim_screen_status_lbl"):
+            self.claim_screen_status_lbl.configure(text_color=GOLD)
+
+    def _set_claim_screen_activity(self, running):
+        serial = self.claim_screen_serial
+        row = getattr(self, "screen_rows", {}).get(serial)
+        if not row:
+            return
+        if running:
+            self._set_screen_status(serial, "Claim item กำลังทำงาน", GOLD)
+            row["button"].configure(
+                text="Claim item",
+                state="disabled",
+                fg_color=GOLD,
+                text_color="#2B1D14",
+            )
+            return
+        if self.multi_farm.is_running(serial):
+            return
+        self._set_screen_status(serial, "พร้อม" if row.get("key") else "ไม่มีสิทธิ์", MUTED if row.get("key") else BERRY)
+        self._set_screen_button(serial, running=False)
+
+    def _close_claim_screen_popup(self):
+        popup = self.claim_screen_popup
+        self.claim_screen_popup = None
+        self.claim_screen_choice_frame = None
+        self.claim_screen_popup_status_var = None
+        self.claim_screen_refresh_btn = None
+        self._claim_screen_pending_action = None
+        if popup is not None:
+            try:
+                popup.grab_release()
+            except Exception:
+                pass
+            try:
+                popup.destroy()
+            except Exception:
+                pass
+
+    def _choose_claim_screen(self, serial):
+        if not self._set_claim_screen(serial):
+            return
+        pending_action = self._claim_screen_pending_action
+        popup = self.claim_screen_popup
+        self.claim_screen_popup = None
+        self.claim_screen_choice_frame = None
+        self.claim_screen_popup_status_var = None
+        self.claim_screen_refresh_btn = None
+        self._claim_screen_pending_action = None
+        if popup is not None:
+            try:
+                popup.grab_release()
+            except Exception:
+                pass
+            popup.destroy()
+        if pending_action is not None:
+            self.root.after_idle(pending_action)
+
+    def _render_claim_screen_popup(self):
+        popup = self.claim_screen_popup
+        frame = self.claim_screen_choice_frame
+        if popup is None or frame is None:
+            return
+        try:
+            if not popup.winfo_exists():
+                return
+        except Exception:
+            return
+
+        for child in frame.winfo_children():
+            child.destroy()
+
+        serials = list(self.screen_serials or [])
+        status_var = self.claim_screen_popup_status_var
+        if serials:
+            if status_var is not None:
+                available = sum(not self.multi_farm.is_running(serial) for serial in serials)
+                status_var.set(f"เลือกได้ {available} จาก {len(serials)} จอ • จอที่รัน AutoFarm จะถูกล็อก")
+            for serial in serials:
+                title = self._claim_screen_title(serial)
+                selected = serial == self.claim_screen_serial
+                autofarm_running = self.multi_farm.is_running(serial)
+                if autofarm_running:
+                    button_text = f"{title}  •  AutoFarm กำลังทำงาน"
+                else:
+                    button_text = f"✓  {title}" if selected else title
+                ctk.CTkButton(
+                    frame,
+                    text=button_text,
+                    command=lambda value=serial: self._choose_claim_screen(value),
+                    height=44,
+                    state="disabled" if autofarm_running else "normal",
+                    fg_color=LINE if autofarm_running else MINT if selected else CARD_DARK,
+                    hover_color="#9BEA79" if selected else CARAMEL,
+                    text_color=MUTED if autofarm_running else "#1A2614" if selected else TEXT,
+                    border_width=1,
+                    border_color=MINT if selected and not autofarm_running else LINE,
+                    font=("Segoe UI", 12, "bold"),
+                    anchor="w",
+                    corner_radius=11,
+                ).pack(fill="x", pady=4)
+        else:
+            message = "กำลังค้นหาจอ Emulator..." if self._instances_refreshing else "ไม่พบจอ Emulator ที่กำลังเปิดอยู่"
+            if status_var is not None:
+                status_var.set(message)
+            ctk.CTkLabel(
+                frame,
+                text="เปิด LDPlayer หรือ MuMu ให้พร้อม\nแล้วกด “ค้นหาจอใหม่”",
+                text_color=MUTED,
+                font=("Segoe UI", 12),
+                justify="center",
+            ).pack(fill="x", pady=16)
+
+        if self.claim_screen_refresh_btn is not None:
+            self.claim_screen_refresh_btn.configure(
+                state="disabled" if self._instances_refreshing else "normal",
+                text="กำลังค้นหา..." if self._instances_refreshing else "⟳ ค้นหาจอใหม่",
+            )
+        height = min(570, max(310, 255 + len(serials) * 52))
+        x = self.root.winfo_x() + max(0, (self.root.winfo_width() - 440) // 2)
+        y = self.root.winfo_y() + max(40, (self.root.winfo_height() - height) // 2)
+        popup.geometry(f"440x{height}+{x}+{y}")
+
+    def _show_claim_screen_popup(self, on_selected=None):
+        if self._claim_task_running():
+            self._log("[Claim item] กรุณาหยุดงานที่กำลังทำอยู่ก่อนเปลี่ยนจอ\n")
+            return
+        if on_selected is not None:
+            self._claim_screen_pending_action = on_selected
+        popup = self.claim_screen_popup
+        if popup is not None:
+            try:
+                if popup.winfo_exists():
+                    popup.lift()
+                    popup.focus_force()
+                    return
+            except Exception:
+                pass
+
+        popup = ctk.CTkToplevel(self.root)
+        self.claim_screen_popup = popup
+        popup.title("เลือกจอสำหรับ Claim item")
+        popup.geometry("440x310")
+        popup.minsize(400, 300)
+        popup.maxsize(500, 570)
+        popup.resizable(True, True)
+        popup.configure(fg_color=BG)
+        popup.transient(self.root)
+        popup.grab_set()
+        popup.protocol("WM_DELETE_WINDOW", self._close_claim_screen_popup)
+
+        panel = ctk.CTkFrame(popup, fg_color=CARD, corner_radius=18, border_width=1, border_color=LINE)
+        panel.pack(fill="both", expand=True, padx=16, pady=16)
+        ctk.CTkLabel(
+            panel,
+            text="จะใช้งาน Claim item ในจอไหน?",
+            text_color=GOLD,
+            font=("Segoe UI", 18, "bold"),
+        ).pack(anchor="w", padx=18, pady=(16, 2))
+        self.claim_screen_popup_status_var = tk.StringVar(value="กำลังตรวจสอบจอ...")
+        ctk.CTkLabel(
+            panel,
+            textvariable=self.claim_screen_popup_status_var,
+            text_color=MUTED,
+            font=("Segoe UI", 11),
+        ).pack(anchor="w", padx=18, pady=(0, 8))
+        self.claim_screen_choice_frame = ctk.CTkScrollableFrame(
+            panel,
+            fg_color=CARD,
+            scrollbar_button_color=CARAMEL,
+            scrollbar_button_hover_color=GOLD,
+        )
+        self.claim_screen_choice_frame.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+
+        footer = ctk.CTkFrame(panel, fg_color=CARD)
+        footer.pack(fill="x", padx=18, pady=(0, 14))
+        self.claim_screen_refresh_btn = ctk.CTkButton(
+            footer,
+            text="⟳ ค้นหาจอใหม่",
+            command=self._refresh_instances,
+            height=34,
+            fg_color=CARD_DARK,
+            hover_color=CARAMEL,
+            text_color=TEXT,
+            border_width=1,
+            border_color=LINE,
+            corner_radius=10,
+        )
+        self.claim_screen_refresh_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        ctk.CTkButton(
+            footer,
+            text="ยกเลิก",
+            command=self._close_claim_screen_popup,
+            width=90,
+            height=34,
+            fg_color=LINE,
+            hover_color=BERRY,
+            text_color=TEXT,
+            corner_radius=10,
+        ).pack(side="left", padx=(5, 0))
+
+        self._render_claim_screen_popup()
+        popup.after(80, popup.focus_force)
+        if not self.screen_serials and not self._instances_refreshing:
+            self._refresh_instances()
+
+    def _prepare_claim_start(self, pending_action):
+        if self._claim_task_running():
+            self._log("[Claim item] กรุณาหยุดงาน Claim item ที่กำลังทำอยู่ก่อน\n")
+            return False
+        if self.claim_screen_serial not in self.screen_serials:
+            self._clear_claim_screen()
+            self._show_claim_screen_popup(on_selected=pending_action)
+            return False
+        if self.multi_farm.is_running(self.claim_screen_serial):
+            title = self._claim_screen_title(self.claim_screen_serial)
+            self._log(f"[Claim item] {title} กำลังใช้ AutoFarm อยู่ กรุณาเลือกจออื่น\n")
+            self._clear_claim_screen()
+            self._show_claim_screen_popup(on_selected=pending_action)
+            return False
+        return self._set_claim_screen(self.claim_screen_serial, write_log=False)
+
     def _build_claim_card(self, parent):
+        screen_card = self._card(parent, "เลือกจอสำหรับ Claim item")
+        screen_main = ctk.CTkFrame(screen_card, fg_color=CARD)
+        screen_main.pack(fill="x", padx=18, pady=(0, 16))
+        screen_main.grid_columnconfigure(0, weight=1)
+        self.claim_screen_var = tk.StringVar(value="ยังไม่ได้เลือกจอสำหรับ Claim item")
+        self.claim_screen_status_lbl = ctk.CTkLabel(
+            screen_main,
+            textvariable=self.claim_screen_var,
+            text_color=GOLD,
+            font=("Segoe UI", 12, "bold"),
+            anchor="w",
+        )
+        self.claim_screen_status_lbl.grid(row=0, column=0, sticky="ew", padx=(12, 8), pady=12)
+        ctk.CTkButton(
+            screen_main,
+            text="เปลี่ยนจอ",
+            command=self._show_claim_screen_popup,
+            width=96,
+            height=34,
+            fg_color=CARAMEL,
+            hover_color=GOLD,
+            text_color="#2B1D14",
+            font=("Segoe UI", 12, "bold"),
+            corner_radius=10,
+        ).grid(row=0, column=1, sticky="e", padx=(0, 12), pady=12)
+
         # 1. Gift Draw Card
         gift_card = self._card(parent, "ระบบสุ่มกล่องของขวัญ (Gift Draw)")
         gift_main = ctk.CTkFrame(gift_card, fg_color=CARD)
@@ -1503,9 +1816,12 @@ del "%~f0"
             self.start_gift_draw()
 
     def start_gift_draw(self):
+        if not self._prepare_claim_start(self.start_gift_draw):
+            return
         self._apply_config()
         bot.STOP_FLAG.clear()
         self.gift_running = True
+        self._set_claim_screen_activity(True)
         self.gift_run_var.set("■ หยุดสุ่มกล่องของขวัญ")
         self.gift_run_btn.configure(fg_color=BERRY, hover_color="#FF8787", text_color="white")
         self.status_var.set("สุ่มของขวัญ...")
@@ -1533,6 +1849,7 @@ del "%~f0"
 
     def _on_gift_draw_stopped(self):
         self.gift_running = False
+        self._set_claim_screen_activity(False)
         self.gift_run_var.set("▶ เริ่มสุ่มกล่องของขวัญ")
         self.gift_run_btn.configure(
             fg_color=CARAMEL,
@@ -1550,9 +1867,12 @@ del "%~f0"
             self.start_send_hearts()
 
     def start_send_hearts(self):
+        if not self._prepare_claim_start(self.start_send_hearts):
+            return
         self._apply_config()
         bot.STOP_FLAG.clear()
         self.hearts_running = True
+        self._set_claim_screen_activity(True)
         self.hearts_run_var.set("■ หยุดส่งหัวใจ")
         self.hearts_run_btn.configure(fg_color=BERRY, hover_color="#FF8787", text_color="white")
         self.status_var.set("ส่งหัวใจ...")
@@ -1580,6 +1900,7 @@ del "%~f0"
 
     def _on_send_hearts_stopped(self):
         self.hearts_running = False
+        self._set_claim_screen_activity(False)
         self.hearts_run_var.set("▶ เริ่มส่งหัวใจ (Send Hearts) (Beta)")
         self.hearts_run_btn.configure(
             fg_color=CARAMEL,
@@ -1597,9 +1918,12 @@ del "%~f0"
             self.start_tr_extract()
 
     def start_tr_extract(self):
+        if not self._prepare_claim_start(self.start_tr_extract):
+            return
         self._apply_config()
         bot.STOP_FLAG.clear()
         self.tr_extract_running = True
+        self._set_claim_screen_activity(True)
         self.tr_extract_run_var.set("■ หยุดสุ่มและย่อยสมบัติ")
         self.tr_extract_run_btn.configure(fg_color=BERRY, hover_color="#FF8787", text_color="white")
         self.status_var.set("สุ่มและย่อยสมบัติ...")
@@ -1627,6 +1951,7 @@ del "%~f0"
 
     def _on_tr_extract_stopped(self):
         self.tr_extract_running = False
+        self._set_claim_screen_activity(False)
         self.tr_extract_run_var.set("▶ เริ่มสุ่มและย่อยสมบัติ (Beta)")
         self.tr_extract_run_btn.configure(
             fg_color=CARAMEL,
@@ -1664,6 +1989,47 @@ del "%~f0"
         ctk.CTkLabel(loop_row, text="0 = วิ่งต่อเนื่อง", text_color=MUTED, font=("Segoe UI", 12)).grid(
             row=0, column=2, sticky="e", padx=(12, 0)
         )
+
+        rest_row = ctk.CTkFrame(card, fg_color=CARD)
+        rest_row.pack(fill="x", padx=18, pady=(0, 12))
+        rest_row.grid_columnconfigure(3, weight=1)
+        self.rest_enabled_var = tk.BooleanVar(value=bool(bot.SETTINGS.get('loop_rest_enabled', False)))
+        self.rest_every_var = tk.StringVar(value=str(int(bot.SETTINGS.get('loop_rest_every', 20) or 20)))
+        self.rest_minutes_var = tk.StringVar(value=str(float(bot.SETTINGS.get('loop_rest_minutes', 10.0) or 10.0)))
+        ctk.CTkSwitch(
+            rest_row,
+            text="พักบอทที่ Lobby",
+            variable=self.rest_enabled_var,
+            onvalue=True,
+            offvalue=False,
+            progress_color=MINT,
+            fg_color=LINE,
+            text_color=TEXT,
+            font=("Segoe UI", 12, "bold"),
+        ).grid(row=0, column=0, sticky="w", padx=(0, 12))
+        ctk.CTkLabel(rest_row, text="ทุก", text_color=MUTED, font=("Segoe UI", 12)).grid(row=0, column=1, padx=(0, 5))
+        ctk.CTkEntry(
+            rest_row,
+            textvariable=self.rest_every_var,
+            fg_color=ENTRY,
+            border_color=LINE,
+            text_color=TEXT,
+            width=58,
+            height=32,
+            justify="center",
+        ).grid(row=0, column=2)
+        ctk.CTkLabel(rest_row, text="รอบ  พัก", text_color=MUTED, font=("Segoe UI", 12)).grid(row=0, column=3, sticky="w", padx=6)
+        ctk.CTkEntry(
+            rest_row,
+            textvariable=self.rest_minutes_var,
+            fg_color=ENTRY,
+            border_color=LINE,
+            text_color=TEXT,
+            width=68,
+            height=32,
+            justify="center",
+        ).grid(row=0, column=4)
+        ctk.CTkLabel(rest_row, text="นาที", text_color=MUTED, font=("Segoe UI", 12)).grid(row=0, column=5, padx=(6, 0))
 
         screen_header = ctk.CTkFrame(card, fg_color=CARD)
         screen_header.pack(fill="x", padx=18, pady=(0, 8))
@@ -1751,6 +2117,11 @@ del "%~f0"
         emu = (selected or self.emu_var.get()).strip()
         if not emu:
             return
+        if self._claim_task_running():
+            if self.active_emu:
+                self.emu_var.set(self.active_emu)
+            self._log("[app] กรุณาหยุดงานในหน้า Claim item ก่อนเปลี่ยน Emulator\n")
+            return
         if self.multi_farm.any_running():
             if self.active_emu:
                 self.emu_var.set(self.active_emu)
@@ -1781,12 +2152,17 @@ del "%~f0"
         if self.multi_farm.any_running():
             self._log("[app] กรุณาหยุด AutoFarm ทุกจอก่อนค้นหา Instance ใหม่\n")
             return
+        if self._claim_task_running():
+            self._log("[app] กรุณาหยุดงานในหน้า Claim item ก่อนค้นหา Instance ใหม่\n")
+            return
+        self._instances_refreshing = True
         self.refresh_btn.configure(state="disabled", text="...")
         self.auto_refresh_btn.configure(state="disabled", text="กำลังค้นหา...")
         self.inst_combo.configure(values=["กำลังค้นหา..."])
         self.inst_var.set("กำลังค้นหา...")
         self.inst_serials = {}
         self.instance_meta = {}
+        self._render_claim_screen_popup()
 
         def worker():
             def instance_order(item):
@@ -1798,7 +2174,11 @@ del "%~f0"
                 brand = 0 if item.get("emu") == "LDPlayer" else 1
                 return (brand, port, value)
 
-            instances = sorted(bot.discover_emu_instances(emu), key=instance_order)
+            try:
+                instances = sorted(bot.discover_emu_instances(emu), key=instance_order)
+            except Exception as exc:
+                instances = []
+                self._log(f"[app] ค้นหาจอไม่สำเร็จ: {exc}\n")
 
             def done():
                 try:
@@ -1817,11 +2197,17 @@ del "%~f0"
                         bot.ADB_DEVICE = None
                     self.screen_serials = list(serials)
                     self._render_screen_rows(self.screen_serials)
+                    if self.claim_screen_serial not in self.screen_serials:
+                        self._clear_claim_screen()
+                    else:
+                        self.claim_screen_var.set(f"จอที่เลือก: {self._claim_screen_title(self.claim_screen_serial)}")
                 except Exception:
                     pass
                 finally:
+                    self._instances_refreshing = False
                     self.refresh_btn.configure(state="normal", text="⟳")
                     self.auto_refresh_btn.configure(state="normal", text="⟳ รีเฟรชหาจอ")
+                    self._render_claim_screen_popup()
 
             try:
                 self.root.after(0, done)
@@ -1833,6 +2219,13 @@ del "%~f0"
     def _on_inst_change(self, selected=None):
         label = selected or self.inst_var.get()
         serial = self.inst_serials.get(label)
+        if self._claim_task_running() and serial != self.claim_screen_serial:
+            for current_label, current_serial in self.inst_serials.items():
+                if current_serial == self.claim_screen_serial:
+                    self.inst_var.set(current_label)
+                    break
+            self._log("[app] กรุณาหยุดงานในหน้า Claim item ก่อนเปลี่ยน Instance\n")
+            return
         if serial:
             meta = self.instance_meta.get(serial, {})
             adb_path = str(meta.get("adb_path") or self.adb_var.get()).strip()
@@ -2041,6 +2434,23 @@ del "%~f0"
             max_loops = max(0, int(self.loops_var.get().strip() or "0"))
         except ValueError:
             max_loops = 0
+        try:
+            rest_every = int(self.rest_every_var.get().strip())
+        except ValueError:
+            raise ValueError("พักทุกกี่รอบต้องเป็นจำนวนเต็ม")
+        try:
+            rest_minutes = float(self.rest_minutes_var.get().strip())
+        except ValueError:
+            raise ValueError("ระยะเวลาพักต้องเป็นตัวเลข")
+        if rest_every < 1 or rest_every > 9999:
+            raise ValueError("พักทุกกี่รอบต้องอยู่ระหว่าง 1-9999")
+        if rest_minutes < 0.1 or rest_minutes > 1440:
+            raise ValueError("ระยะเวลาพักต้องอยู่ระหว่าง 0.1-1440 นาที")
+        bot.SETTINGS.update({
+            "loop_rest_enabled": bool(self.rest_enabled_var.get()),
+            "loop_rest_every": rest_every,
+            "loop_rest_minutes": rest_minutes,
+        })
         return {
             "adb_path": self.adb_var.get().strip(),
             "settings": dict(bot.SETTINGS),
@@ -2049,32 +2459,41 @@ del "%~f0"
         }
 
     def start_bot(self):
-        if any(
-            bool(getattr(self, name, False))
-            for name in ("gift_running", "hearts_running", "tr_extract_running")
-        ):
-            self._log("[app] กรุณาหยุดงานในหน้า Claim item ก่อนเริ่ม AutoFarm\n")
-            return
         try:
             options = self._worker_options()
         except ValueError as exc:
             self._log(f"[app] เริ่ม AutoFarm ไม่ได้: {exc}\n")
             return
         started = 0
+        claim_busy_serial = self.claim_screen_serial if self._claim_task_running() else ""
         for serial, row in self.screen_rows.items():
+            if serial == claim_busy_serial:
+                self._set_screen_status(serial, "Claim item กำลังทำงาน • AutoFarm ข้ามจอนี้", GOLD)
+                continue
             if row.get("key") and not self.multi_farm.is_running(serial):
                 if self._start_screen(serial, options=options):
                     started += 1
         if started:
             mode = f"{options['max_loops']} รอบ" if options["max_loops"] else "วนไม่จำกัด"
-            self._log(f"[app] เริ่ม AutoFarm {started} จอ ({mode})\n")
+            rest = options["settings"]
+            rest_text = "ไม่พัก"
+            if rest.get("loop_rest_enabled", False):
+                rest_text = f"พักทุก {rest['loop_rest_every']} รอบ นาน {rest['loop_rest_minutes']:g} นาที"
+            self._log(f"[app] เริ่ม AutoFarm {started} จอ ({mode}; {rest_text})\n")
         else:
-            self._log("[app] ไม่มีจอที่พร้อมเริ่ม — เปิด LDPlayer/MuMu และเพิ่ม Key ให้ครบจำนวนจอ\n")
+            if claim_busy_serial:
+                self._log("[app] ไม่มีจออื่นที่พร้อมเริ่ม AutoFarm — จอ Claim item ถูกข้ามไว้\n")
+            else:
+                self._log("[app] ไม่มีจอที่พร้อมเริ่ม — เปิด LDPlayer/MuMu และเพิ่ม Key ให้ครบจำนวนจอ\n")
         self._refresh_multi_state()
 
     def _start_screen(self, serial, options=None):
         row = self.screen_rows.get(serial)
         if not row or not row.get("key") or self.multi_farm.is_running(serial):
+            return False
+        if self._claim_task_running() and serial == self.claim_screen_serial:
+            self._set_screen_status(serial, "Claim item กำลังทำงาน • เริ่ม AutoFarm จอนี้ไม่ได้", GOLD)
+            self._log(f"[{row.get('label', serial)}] จอนี้กำลังใช้ Claim item อยู่ กรุณาเลือก AutoFarm จออื่น\n")
             return False
         if options is None:
             try:
@@ -2233,6 +2652,16 @@ del "%~f0"
                 coins=row.get("last_coin"),
                 total=int(row.get("total") or 0),
             )
+        elif event_name == "rest" and row:
+            active = bool(event.get("active", False))
+            remaining = max(0, int(event.get("remaining_seconds") or 0))
+            if active:
+                minutes, seconds = divmod(remaining, 60)
+                hours, minutes = divmod(minutes, 60)
+                countdown = f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes:02d}:{seconds:02d}"
+                self._set_screen_status(serial, f"พักที่ Lobby • เหลือ {countdown}", GOLD)
+            else:
+                self._set_screen_status(serial, "ครบเวลาพัก • กำลังเริ่มรอบถัดไป", MINT)
         elif event_name == "license" and not event.get("ok", False):
             message = str(event.get("message") or "Key ใช้งานไม่ได้")
             if row:
