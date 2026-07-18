@@ -14,9 +14,9 @@ database_name = "jlcookie_license"
 database_id = "7f2e3beb-e10b-4643-b4b5-d6ad0ea1dabd"
 
 [vars]
-APP_VERSION = "V2.0.3 Premium"
-DOWNLOAD_URL = "https://github.com/JLKunakorn/JLBotCookie-Release/releases/download/v2.0.3/JLmain_V2.0.3_Premium.exe"
-ZIP_URL = "https://github.com/JLKunakorn/JLBotCookie-Release/releases/download/v2.0.3/JLmain_V2.0.3_Premium.zip"
+APP_VERSION = "V2.0.4 Premium"
+DOWNLOAD_URL = "https://github.com/JLKunakorn/JLBotCookie-Release/releases/download/v2.0.4/JLmain_V2.0.4_Premium.exe"
+ZIP_URL = "https://github.com/JLKunakorn/JLBotCookie-Release/releases/download/v2.0.4/JLmain_V2.0.4_Premium.zip"
 PROMAX_APP_VERSION = "V2.0.4 ProMax"
 PROMAX_DOWNLOAD_URL = "https://github.com/JLKunakorn/JLBotCookie-Promax-Release/releases/download/v2.0.4/Beta.JLBotPromax_V2.0.4_ProMax.exe"
 PROMAX_ZIP_URL = "https://github.com/JLKunakorn/JLBotCookie-Promax-Release/releases/download/v2.0.4/Beta.JLBotPromax_V2.0.4_ProMax.zip"
